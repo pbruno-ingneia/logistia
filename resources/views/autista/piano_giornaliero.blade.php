@@ -362,6 +362,7 @@
                 <button class="piano-tab" onclick="switchTab('mappa')"><i class="ri-map-2-line"></i> Mappa</button>
             </div>
 
+
             <!-- TAB: PERCORSO -->
             <div class="tab-panel active" id="panelPercorso">
                 <div class="sec-head">Ordine consegne</div>

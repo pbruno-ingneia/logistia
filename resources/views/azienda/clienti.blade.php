@@ -45,7 +45,7 @@
             <div class="col-md-3">
                 <div class="card text-center">
                     <div class="card-body">
-                        <h3 class="text-warning">{{ $clienti->filter(function($c) { return $c->partita_iva; })->count() }}</h3>
+                        <h3 class="text-warning">{{ $clienti->filter(function($c) { return $c->piva; })->count() }}</h3>
                         <p class="text-muted mb-0">Con P.IVA</p>
                     </div>
                 </div>
@@ -105,13 +105,13 @@
                                             @endif
                                         </td>
                                         <td>
-                                            @if($cliente->partita_iva)
-                                                <div><strong>P.IVA:</strong> {{ $cliente->partita_iva }}</div>
+                                            @if($cliente->piva)
+                                                <div><strong>P.IVA:</strong> {{ $cliente->piva }}</div>
                                             @endif
                                             @if($cliente->codice_fiscale)
                                                 <div><strong>C.F.:</strong> {{ $cliente->codice_fiscale }}</div>
                                             @endif
-                                            @if(!$cliente->partita_iva && !$cliente->codice_fiscale)
+                                            @if(!$cliente->piva && !$cliente->codice_fiscale)
                                                 <span class="text-muted">Non specificati</span>
                                             @endif
                                         </td>
@@ -159,39 +159,59 @@
                     <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
+
+                    {{-- P.IVA con auto-caricamento --}}
                     <div class="row">
+                        <div class="col-md-8">
+                            <label class="form-label">Partita IVA</label>
+                            <input type="text" id="crea_partita_iva" name="partita_iva"
+                                   class="form-control" placeholder="Es. 12345678901"
+                                   onblur="caricaDatiCliente()"
+                                   oninput="resetStatoPiva()">
+                            <div id="crea_piva_status" class="mt-1" style="display:none;"></div>
+                        </div>
+                        <div class="col-md-4 d-flex align-items-end">
+                            <button type="button" class="btn btn-success w-100" id="btn_cerca_piva_cliente"
+                                    onclick="caricaDatiCliente()">
+                                <i class="ri-search-line me-1"></i> Cerca P.IVA
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="row mt-3">
                         <div class="col-md-12">
                             <label class="form-label">Ragione Sociale *</label>
-                            <input type="text" name="ragione_sociale" class="form-control" required placeholder="Es. Acme Transport S.r.l.">
+                            <input type="text" id="crea_ragione_sociale" name="ragione_sociale"
+                                   class="form-control" required placeholder="Es. Acme Transport S.r.l.">
                         </div>
                     </div>
 
                     <div class="row mt-3">
                         <div class="col-md-12">
                             <label class="form-label">Indirizzo Completo</label>
-                            <textarea name="indirizzo" class="form-control" rows="3" placeholder="Via, numero civico, CAP, città, provincia"></textarea>
+                            <textarea id="crea_indirizzo" name="indirizzo" class="form-control"
+                                      rows="2" placeholder="Via, numero civico, CAP, città, provincia"></textarea>
                         </div>
                     </div>
 
                     <div class="row mt-3">
                         <div class="col-md-6">
                             <label class="form-label">Telefono</label>
-                            <input type="text" name="telefono" class="form-control" placeholder="Es. +39 123 456 7890">
+                            <input type="text" id="crea_telefono" name="telefono"
+                                   class="form-control" placeholder="Es. +39 123 456 7890">
                         </div>
                         <div class="col-md-6">
                             <label class="form-label">Email</label>
-                            <input type="email" name="email" class="form-control" placeholder="info@cliente.it">
+                            <input type="email" id="crea_email" name="email"
+                                   class="form-control" placeholder="info@cliente.it">
                         </div>
                     </div>
 
                     <div class="row mt-3">
                         <div class="col-md-6">
-                            <label class="form-label">Partita IVA</label>
-                            <input type="text" name="partita_iva" class="form-control" placeholder="IT12345678901">
-                        </div>
-                        <div class="col-md-6">
                             <label class="form-label">Codice Fiscale</label>
-                            <input type="text" name="codice_fiscale" class="form-control" placeholder="ABCDEF12G34H567I">
+                            <input type="text" id="crea_codice_fiscale" name="codice_fiscale"
+                                   class="form-control" placeholder="ABCDEF12G34H567I">
                         </div>
                     </div>
                 </div>
@@ -353,6 +373,50 @@
 </div>
 
 <script>
+    // ── Auto-caricamento dati da P.IVA (OpenAPI) ──────────────────────
+    function setPivaClienteStatus(tipo, testo) {
+        const el = document.getElementById('crea_piva_status');
+        if (!el) return;
+        const colori = { loading:'text-primary', ok:'text-success', error:'text-danger', warn:'text-warning' };
+        const icone  = { loading:'ri-loader-4-line', ok:'ri-check-circle-line', error:'ri-close-circle-line', warn:'ri-error-warning-line' };
+        el.style.display = 'block';
+        el.innerHTML = '<small class="' + colori[tipo] + '"><i class="' + icone[tipo] + ' me-1"></i>' + testo + '</small>';
+    }
+
+    function resetStatoPiva() {
+        const el = document.getElementById('crea_piva_status');
+        if (el) el.style.display = 'none';
+    }
+
+    function caricaDatiCliente() {
+        const piva = document.getElementById('crea_partita_iva').value.trim().replace(/\s/g, '');
+        if (!piva || piva.length < 11) return;
+
+        const btn = document.getElementById('btn_cerca_piva_cliente');
+        if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Carico...'; }
+        setPivaClienteStatus('loading', 'Ricerca in corso...');
+
+        $.ajax({
+            url: '/admin/cerca-piva',
+            method: 'GET',
+            data: { piva: piva }
+        }).done(function(response) {
+            if (response.success) {
+                const indirizzo = [response.indirizzo, response.cap, response.comune, response.provincia ? '(' + response.provincia + ')' : ''].filter(Boolean).join(', ');
+                document.getElementById('crea_ragione_sociale').value = response.ragione_sociale || '';
+                document.getElementById('crea_indirizzo').value       = indirizzo;
+                setPivaClienteStatus('ok', 'Dati caricati: <strong>' + (response.ragione_sociale || '') + '</strong>');
+            } else {
+                setPivaClienteStatus('warn', response.message || 'P.IVA non trovata nel registro imprese');
+            }
+        }).fail(function() {
+            setPivaClienteStatus('error', 'Errore di connessione all\'API');
+        }).always(function() {
+            if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ri-search-line me-1"></i> Cerca P.IVA'; }
+        });
+    }
+
+    // ── Dati clienti per JavaScript ───────────────────────────────────
     // Dati clienti per JavaScript
     const clientiData = @json($clienti);
 
@@ -371,7 +435,7 @@
 
             // Dati fiscali
             let fiscali = [];
-            if (cliente.partita_iva) fiscali.push('P.IVA: ' + cliente.partita_iva);
+            if (cliente.piva) fiscali.push('P.IVA: ' + cliente.piva);
             if (cliente.codice_fiscale) fiscali.push('C.F.: ' + cliente.codice_fiscale);
             document.getElementById('visualizza_fiscali').innerHTML = fiscali.length > 0 ? fiscali.join('<br>') : 'Non specificati';
 
@@ -404,7 +468,7 @@
             document.getElementById('modifica_indirizzo').value = cliente.indirizzo || '';
             document.getElementById('modifica_telefono').value = cliente.telefono || '';
             document.getElementById('modifica_email').value = cliente.email || '';
-            document.getElementById('modifica_partita_iva').value = cliente.partita_iva || '';
+            document.getElementById('modifica_partita_iva').value = cliente.piva || '';
             document.getElementById('modifica_codice_fiscale').value = cliente.codice_fiscale || '';
 
             new bootstrap.Modal(document.getElementById('modalModificaCliente')).show();

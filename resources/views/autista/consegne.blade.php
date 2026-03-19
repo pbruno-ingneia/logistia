@@ -439,9 +439,17 @@
                                     $badgeText = 'Pianificato';
                             }
                         @endphp
-                        <span class="badge-priority {{ $badgeClass }}">
-                    {{ $badgeText }}
-                </span>
+                        <span class="badge-priority {{ $badgeClass }}">{{ $badgeText }}</span>
+                        @if($consegna->tappa_id && $consegna->totale_tappe > 1)
+                            <span class="badge bg-primary ms-1" style="font-size:10px;">
+                                <i class="ri-route-line"></i> T{{ $consegna->numero_tappa }}/{{ $consegna->totale_tappe }}
+                            </span>
+                        @endif
+                        @if($consegna->tappa_stato === 'attesa')
+                            <span class="badge bg-secondary ms-1" style="font-size:10px;">
+                                <i class="ri-time-line"></i> In attesa
+                            </span>
+                        @endif
                     </div>
 
                     <div class="body">
@@ -494,13 +502,23 @@
                     </div>
 
                     <div class="actions">
-                        @if($consegna->stato == 'pianificato' || $consegna->stato == 'assegnato')
+                        @if($consegna->tappa_stato === 'attesa')
+                            {{-- Tappa in attesa: mostra info, nessuna azione --}}
+                            <div class="btn btn-outline-secondary w-100" style="cursor:default;opacity:.7;">
+                                <i class="ri-time-line me-1"></i>
+                                In attesa del carico dal precedente autista
+                            </div>
+
+                        @elseif($consegna->stato == 'pianificato' || $consegna->stato == 'assegnato')
                             {{-- Stato: Da fare - Solo Naviga + Inizia --}}
                             <a href="https://www.google.com/maps/dir/?api=1&destination={{ urlencode($consegna->indirizzo_consegna ?? '') }}"
                                target="_blank" class="btn btn-outline-custom">
                                 <i class="ri-navigation-line me-1"></i>
                                 Naviga
                             </a>
+                            <button class="btn btn-outline-secondary" onclick="apriUploadFoto({{ $consegna->id }})" title="Allega foto" style="flex:none!important;width:44px;padding:10px;border-radius:8px;">
+                                <i class="ri-camera-line"></i>
+                            </button>
                             <button class="btn btn-primary-custom" onclick="iniziaConsegna({{ $consegna->id }})">
                                 <i class="ri-play-line me-1"></i>
                                 Inizia
@@ -543,6 +561,9 @@
                                 <i class="ri-file-text-line me-1"></i>
                                 Vedi DDT
                             </a>
+                            <button class="btn btn-outline-secondary" onclick="apriUploadFoto({{ $consegna->id }})" title="Allega foto" style="flex:none!important;width:44px;padding:10px;border-radius:8px;">
+                                <i class="ri-camera-line"></i>
+                            </button>
                             <a href="/autista/ordine/{{ $consegna->id }}/completato" class="btn btn-success-custom">
                                 <i class="ri-share-line"></i>
                             </a>

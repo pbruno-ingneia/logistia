@@ -16,6 +16,26 @@
             </div>
         </div>
 
+        <!-- Messaggi sessione -->
+        @if(session('success'))
+            <div class="alert alert-success alert-dismissible fade show">
+                <i class="ri-check-line me-2"></i>{{ session('success') }}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+        @endif
+        @if(session('warning'))
+            <div class="alert alert-warning alert-dismissible fade show">
+                <i class="ri-alert-line me-2"></i>{{ session('warning') }}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+        @endif
+        @if(session('error'))
+            <div class="alert alert-danger alert-dismissible fade show">
+                <i class="ri-error-warning-line me-2"></i>{{ session('error') }}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+        @endif
+
         <!-- Tab Filtro per Stato -->
         <div class="row mb-3">
             <div class="col-12">
@@ -99,7 +119,11 @@
                                         </td>
                                         <td class="text-center">
                                             @if(isset($ordine->numero_colli) && $ordine->numero_colli)
-                                                <span class="badge bg-secondary">{{ $ordine->numero_colli }}</span>
+                                                @if(($ordine->tipo_unita ?? 'colli') === 'pedane')
+                                                    <span class="badge bg-warning text-dark"><i class="ri-stack-line"></i> {{ $ordine->numero_colli }} ped.</span>
+                                                @else
+                                                    <span class="badge bg-secondary"><i class="ri-archive-line"></i> {{ $ordine->numero_colli }} colli</span>
+                                                @endif
                                             @else
                                                 <span class="text-muted">-</span>
                                             @endif
@@ -183,7 +207,7 @@
                     {{-- Riga 1: Cliente --}}
                     <div class="row">
                         <div class="col-md-12">
-                            <label class="form-label">Cliente *</label>
+                            <label class="form-label">Cliente <span class="text-danger">*</span></label>
                             <select name="id_cliente" id="crea_id_cliente" class="form-select" required onchange="onClienteChange(this.value, 'crea')">
                                 <option value="">Seleziona cliente...</option>
                                 @foreach($clienti as $cliente)
@@ -196,7 +220,7 @@
                     {{-- Riga 1b: Date Ritiro e Consegna --}}
                     <div class="row mt-3">
                         <div class="col-md-3">
-                            <label class="form-label">Data Ritiro *</label>
+                            <label class="form-label">Data Ritiro <span class="text-danger">*</span></label>
                             <input type="date" name="data_ritiro" class="form-control" required>
                         </div>
                         <div class="col-md-3">
@@ -213,27 +237,25 @@
                         </div>
                     </div>
 
-                    {{-- ✅ Riga 2: Indirizzi CON AUTOCOMPLETE --}}
-                    <div class="row mt-3">
-                        <div class="col-md-6">
-                            <label class="form-label"><span class="text-success">📍</span> Indirizzo Ritiro *</label>
-                            <input type="text" name="indirizzo_ritiro" id="crea_indirizzo_ritiro" class="form-control address-autocomplete" required placeholder="Inizia a scrivere l'indirizzo..." autocomplete="off">
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label"><span class="text-danger">📍</span> Indirizzo Consegna *</label>
-                            <input type="text" name="indirizzo_consegna" id="crea_indirizzo_consegna" class="form-control address-autocomplete" required placeholder="Inizia a scrivere l'indirizzo..." autocomplete="off">
-                        </div>
-                    </div>
+                    {{-- Indirizzi (hidden, sincronizzati dalla prima/ultima tappa) --}}
+                    <input type="hidden" name="indirizzo_ritiro"   id="crea_indirizzo_ritiro">
+                    <input type="hidden" name="indirizzo_consegna" id="crea_indirizzo_consegna">
 
                     {{-- Riga 3: Merce + Km + Ore --}}
                     <div class="row mt-3">
                         <div class="col-md-4">
-                            <label class="form-label">Descrizione Merce *</label>
+                            <label class="form-label">Descrizione Merce <span class="text-danger">*</span></label>
                             <textarea name="descrizione_merce" class="form-control" rows="2" required placeholder="Es: Pallet elettronica"></textarea>
                         </div>
                         <div class="col-md-2">
-                            <label class="form-label">N° Colli</label>
-                            <input type="number" name="numero_colli" class="form-control" min="1" placeholder="5">
+                            <label class="form-label">Tipo Unità</label>
+                            <div class="btn-group w-100" role="group">
+                                <input type="radio" class="btn-check" name="tipo_unita" id="crea_tipo_colli" value="colli" checked>
+                                <label class="btn btn-outline-secondary btn-sm" for="crea_tipo_colli"><i class="ri-archive-line"></i> Colli</label>
+                                <input type="radio" class="btn-check" name="tipo_unita" id="crea_tipo_pedane" value="pedane">
+                                <label class="btn btn-outline-secondary btn-sm" for="crea_tipo_pedane"><i class="ri-stack-line"></i> Pedane</label>
+                            </div>
+                            <input type="number" name="numero_colli" id="crea_numero_colli" class="form-control mt-1" min="1" placeholder="Quantità">
                         </div>
                         <div class="col-md-2">
                             <label class="form-label">Peso (Kg)</label>
@@ -372,25 +394,43 @@
                         </div>
                     </div>
 
-                    {{-- Riga 4: Mezzo e Autista --}}
-                    <div class="row mt-3">
-                        <div class="col-md-6">
-                            <label class="form-label">Mezzo</label>
-                            <select name="id_mezzo" class="form-select">
-                                <option value="">Seleziona mezzo...</option>
-                                @foreach($mezzi as $mezzo)
-                                    <option value="{{ $mezzo->id }}">{{ $mezzo->targa }} - {{ $mezzo->marca ?? '' }} {{ $mezzo->modello ?? '' }}</option>
-                                @endforeach
-                            </select>
+                    {{-- Tappe (staffetta multi-autista) --}}
+                    <div class="mt-3">
+                        <div class="d-flex align-items-center gap-2 mb-2">
+                            <i class="ri-route-line text-primary fs-5"></i>
+                            <label class="form-label fw-bold mb-0">Assegnazione Autisti / Tappe</label>
+                            <small class="text-muted">(almeno 1 tappa)</small>
                         </div>
-                        <div class="col-md-6">
-                            <label class="form-label">Autista</label>
-                            <select name="id_autista" class="form-select">
-                                <option value="">Seleziona autista...</option>
-                                @foreach($autisti as $autista)
-                                    <option value="{{ $autista->id }}">{{ $autista->nome }} {{ $autista->cognome }}</option>
-                                @endforeach
-                            </select>
+                        <div id="crea-tappe-container"></div>
+                        <button type="button" class="btn btn-outline-primary btn-sm mt-2" onclick="aggiungiTappa('crea')">
+                            <i class="ri-add-line me-1"></i> Aggiungi Tappa
+                        </button>
+                    </div>
+
+                    {{-- Pedane --}}
+                    <div class="row mt-3">
+                        <div class="col-12">
+                            <div class="card border border-warning mb-0">
+                                <div class="card-header py-2 bg-warning bg-opacity-10 d-flex align-items-center gap-2">
+                                    <i class="ri-stack-line text-warning"></i>
+                                    <span class="fw-semibold">Gestione Pedane</span>
+                                    <small class="text-muted ms-1">(opzionale)</small>
+                                </div>
+                                <div class="card-body py-2">
+                                    <div class="row">
+                                        <div class="col-md-6">
+                                            <label class="form-label">Pedane consegnate con la merce</label>
+                                            <input type="number" name="pedane_consegnate" class="form-control" min="0" value="0" placeholder="0">
+                                            <small class="text-muted">Pedane che partiranno con questo ordine</small>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label class="form-label">Pedane attese in reso</label>
+                                            <input type="number" name="pedane_da_ritirare" class="form-control" min="0" value="0" placeholder="0">
+                                            <small class="text-muted">Pedane che l'autista deve ritirare alla consegna</small>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
 
@@ -464,7 +504,7 @@
                             <input type="text" id="mod_numero_ordine" class="form-control" disabled>
                         </div>
                         <div class="col-md-8">
-                            <label class="form-label">Cliente *</label>
+                            <label class="form-label">Cliente <span class="text-danger">*</span></label>
                             <select name="id_cliente" id="mod_id_cliente" class="form-select" required onchange="onClienteChange(this.value, 'mod')">
                                 <option value="">Seleziona cliente...</option>
                                 @foreach($clienti as $cliente)
@@ -477,7 +517,7 @@
                     {{-- Riga 2: Date --}}
                     <div class="row mt-3">
                         <div class="col-md-3">
-                            <label class="form-label">Data Ritiro *</label>
+                            <label class="form-label">Data Ritiro <span class="text-danger">*</span></label>
                             <input type="date" name="data_ritiro" id="mod_data_ritiro" class="form-control" required>
                         </div>
                         <div class="col-md-3">
@@ -494,27 +534,25 @@
                         </div>
                     </div>
 
-                    {{-- ✅ Riga 3: Indirizzi CON AUTOCOMPLETE --}}
-                    <div class="row mt-3">
-                        <div class="col-md-6">
-                            <label class="form-label"><span class="text-success">📍</span> Indirizzo Ritiro *</label>
-                            <input type="text" name="indirizzo_ritiro" id="mod_indirizzo_ritiro" class="form-control address-autocomplete" required placeholder="Inizia a scrivere l'indirizzo..." autocomplete="off">
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label"><span class="text-danger">📍</span> Indirizzo Consegna *</label>
-                            <input type="text" name="indirizzo_consegna" id="mod_indirizzo_consegna" class="form-control address-autocomplete" required placeholder="Inizia a scrivere l'indirizzo..." autocomplete="off">
-                        </div>
-                    </div>
+                    {{-- Indirizzi (hidden, sincronizzati dalla prima/ultima tappa) --}}
+                    <input type="hidden" name="indirizzo_ritiro"   id="mod_indirizzo_ritiro">
+                    <input type="hidden" name="indirizzo_consegna" id="mod_indirizzo_consegna">
 
                     {{-- Riga 4: Merce + Quantità --}}
                     <div class="row mt-3">
                         <div class="col-md-4">
-                            <label class="form-label">Descrizione Merce *</label>
+                            <label class="form-label">Descrizione Merce <span class="text-danger">*</span></label>
                             <textarea name="descrizione_merce" id="mod_descrizione_merce" class="form-control" rows="2" required></textarea>
                         </div>
                         <div class="col-md-2">
-                            <label class="form-label">N° Colli</label>
-                            <input type="number" min="1" name="numero_colli" id="mod_numero_colli" class="form-control">
+                            <label class="form-label">Tipo Unità</label>
+                            <div class="btn-group w-100" role="group">
+                                <input type="radio" class="btn-check" name="tipo_unita" id="mod_tipo_colli" value="colli">
+                                <label class="btn btn-outline-secondary btn-sm" for="mod_tipo_colli"><i class="ri-archive-line"></i> Colli</label>
+                                <input type="radio" class="btn-check" name="tipo_unita" id="mod_tipo_pedane" value="pedane">
+                                <label class="btn btn-outline-secondary btn-sm" for="mod_tipo_pedane"><i class="ri-stack-line"></i> Pedane</label>
+                            </div>
+                            <input type="number" min="1" name="numero_colli" id="mod_numero_colli" class="form-control mt-1" placeholder="Quantità">
                         </div>
                         <div class="col-md-2">
                             <label class="form-label">Peso (Kg)</label>
@@ -624,26 +662,20 @@
                         </div>
                     </div>
 
-                    {{-- Mezzo, Autista, Stato --}}
+                    {{-- Tappe (staffetta multi-autista) --}}
+                    <div class="mt-3">
+                        <div class="d-flex align-items-center gap-2 mb-2">
+                            <i class="ri-route-line text-primary fs-5"></i>
+                            <label class="form-label fw-bold mb-0">Assegnazione Autisti / Tappe</label>
+                        </div>
+                        <div id="mod-tappe-container"></div>
+                        <button type="button" class="btn btn-outline-primary btn-sm mt-2" onclick="aggiungiTappa('mod')">
+                            <i class="ri-add-line me-1"></i> Aggiungi Tappa
+                        </button>
+                    </div>
+
+                    {{-- Stato --}}
                     <div class="row mt-3">
-                        <div class="col-md-4">
-                            <label class="form-label">Mezzo</label>
-                            <select name="id_mezzo" id="mod_id_mezzo" class="form-select">
-                                <option value="">Seleziona mezzo...</option>
-                                @foreach($mezzi as $mezzo)
-                                    <option value="{{ $mezzo->id }}">{{ $mezzo->targa }} - {{ $mezzo->marca ?? '' }} {{ $mezzo->modello ?? '' }}</option>
-                                @endforeach
-                            </select>
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label">Autista</label>
-                            <select name="id_autista" id="mod_id_autista" class="form-select">
-                                <option value="">Seleziona autista...</option>
-                                @foreach($autisti as $autista)
-                                    <option value="{{ $autista->id }}">{{ $autista->nome }} {{ $autista->cognome }}</option>
-                                @endforeach
-                            </select>
-                        </div>
                         <div class="col-md-4">
                             <label class="form-label">Stato</label>
                             <select name="stato" id="mod_stato" class="form-select">
@@ -653,6 +685,30 @@
                                 <option value="completato">✅ Completato</option>
                                 <option value="annullato">❌ Annullato</option>
                             </select>
+                        </div>
+                    </div>
+
+                    {{-- Pedane --}}
+                    <div class="row mt-3">
+                        <div class="col-12">
+                            <div class="card border border-warning mb-0">
+                                <div class="card-header py-2 bg-warning bg-opacity-10 d-flex align-items-center gap-2">
+                                    <i class="ri-stack-line text-warning"></i>
+                                    <span class="fw-semibold">Gestione Pedane</span>
+                                </div>
+                                <div class="card-body py-2">
+                                    <div class="row">
+                                        <div class="col-md-6">
+                                            <label class="form-label">Pedane consegnate con la merce</label>
+                                            <input type="number" name="pedane_consegnate" id="mod_pedane_consegnate" class="form-control" min="0" value="0">
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label class="form-label">Pedane attese in reso</label>
+                                            <input type="number" name="pedane_da_ritirare" id="mod_pedane_da_ritirare" class="form-control" min="0" value="0">
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
 
@@ -781,6 +837,7 @@
 <!-- ============================================ -->
 <script>
     const ordiniData = @json($ordini->keyBy('id'));
+    const clientiData = @json($clienti->keyBy('id'));
 
     // Cache tariffe caricate per evitare chiamate ripetute
     const tariffaCache = {};
@@ -845,6 +902,17 @@
         if (!idCliente) {
             resetTariffaUI(prefix);
             return;
+        }
+
+        // ── Auto-fill indirizzo ritiro sulla prima tappa ───────────
+        const cliente = clientiData[idCliente];
+        if (cliente && cliente.indirizzo) {
+            const container = document.getElementById(prefix + '-tappe-container');
+            const firstDa = container?.querySelector('.tappa-item:first-child .tappa-da');
+            if (firstDa && !firstDa.value) {
+                firstDa.value = cliente.indirizzo;
+                sincronizzaIndirizziOrdine(prefix);
+            }
         }
 
         // Controlla cache
@@ -1144,13 +1212,17 @@
         document.getElementById('mod_indirizzo_consegna').value = ordine.indirizzo_consegna;
         document.getElementById('mod_descrizione_merce').value = ordine.descrizione_merce;
         document.getElementById('mod_numero_colli').value = ordine.numero_colli || '';
+        const tipoUnita = ordine.tipo_unita || 'colli';
+        document.getElementById('mod_tipo_colli').checked  = tipoUnita === 'colli';
+        document.getElementById('mod_tipo_pedane').checked = tipoUnita === 'pedane';
         document.getElementById('mod_peso_kg').value = ordine.peso_kg || '';
         document.getElementById('mod_km_totali').value = ordine.km_totali || '';
         document.getElementById('mod_ore_stimate').value = ordine.ore_stimate || '';
-        document.getElementById('mod_id_mezzo').value = ordine.id_mezzo || '';
-        document.getElementById('mod_id_autista').value = ordine.id_autista || '';
+        caricaTappeModal('mod', ordine.id, ordine.indirizzo_ritiro);
         document.getElementById('mod_stato').value = ordine.stato;
         document.getElementById('mod_note').value = ordine.note || '';
+        document.getElementById('mod_pedane_consegnate').value = ordine.pedane_consegnate || 0;
+        document.getElementById('mod_pedane_da_ritirare').value = ordine.pedane_da_ritirare || 0;
 
         // Imposta importo manuale come default
         document.getElementById('mod_importo_manuale').value = ordine.importo || '';
@@ -1316,18 +1388,18 @@
     }
 
     async function calcolaKmAuto(prefix) {
-        let indirizzoRitiro, indirizzoConsegna;
+        // Leggi da prima/ultima tappa
+        const container = document.getElementById(prefix + '-tappe-container');
+        const items = container ? Array.from(container.querySelectorAll('.tappa-item')) : [];
+        let indirizzoRitiro   = items.length > 0 ? (items[0].querySelector('.tappa-da')?.value || '') : '';
+        let indirizzoConsegna = items.length > 0 ? (items[items.length-1].querySelector('.tappa-a')?.value || '') : '';
 
-        if (prefix === 'crea') {
-            indirizzoRitiro = document.getElementById('crea_indirizzo_ritiro').value;
-            indirizzoConsegna = document.getElementById('crea_indirizzo_consegna').value;
-        } else {
-            indirizzoRitiro = document.getElementById('mod_indirizzo_ritiro').value;
-            indirizzoConsegna = document.getElementById('mod_indirizzo_consegna').value;
-        }
+        // fallback ai campi hidden
+        if (!indirizzoRitiro)   indirizzoRitiro   = document.getElementById(prefix + '_indirizzo_ritiro')?.value  || '';
+        if (!indirizzoConsegna) indirizzoConsegna = document.getElementById(prefix + '_indirizzo_consegna')?.value || '';
 
         if (!indirizzoRitiro || !indirizzoConsegna) {
-            alert('Inserisci prima gli indirizzi di ritiro e consegna.');
+            alert('Inserisci prima gli indirizzi nelle tappe (campo "Ritira da" della prima e "Consegna a" dell\'ultima).');
             return;
         }
 
@@ -1394,6 +1466,205 @@
         }
     }
 
+    // ====================================================
+    // GESTIONE TAPPE (staffetta multi-autista)
+    // ====================================================
+    const autistiOpzioni = @json($autisti);
+    const mezziOpzioni   = @json($mezzi);
+    let tappaIdx = 0;
+
+    function _autistiOpts(sel) {
+        return '<option value="">-- nessuno --</option>' +
+            autistiOpzioni.map(a =>
+                `<option value="${a.id}" ${String(a.id) === String(sel) ? 'selected' : ''}>${a.nome} ${a.cognome}</option>`
+            ).join('');
+    }
+
+    function _mezziOpts(sel) {
+        return '<option value="">-- nessuno --</option>' +
+            mezziOpzioni.map(m =>
+                `<option value="${m.id}" ${String(m.id) === String(sel) ? 'selected' : ''}>${m.targa}${m.marca ? ' - ' + m.marca + (m.modello ? ' ' + m.modello : '') : ''}</option>`
+            ).join('');
+    }
+
+    function _tappaHtml(prefix, idx, ritiro, consegna, idAutista, idMezzo, note) {
+        const esc = v => (v || '').replace(/"/g, '&quot;');
+        return `<div class="tappa-item card border mb-2" data-idx="${idx}">
+            <div class="card-header py-2 bg-light d-flex justify-content-between align-items-center">
+                <span class="fw-semibold small text-primary">
+                    <i class="ri-route-line me-1"></i> Tappa <span class="tappa-num"></span>
+                </span>
+                <button type="button" class="btn btn-sm btn-outline-danger py-0 px-2 remove-tappa-btn"
+                        onclick="rimuoviTappa('${prefix}', this)">
+                    <i class="ri-close-line"></i>
+                </button>
+            </div>
+            <div class="card-body py-2">
+                <div class="row g-2">
+                    <div class="col-md-6">
+                        <label class="form-label small mb-1">Autista</label>
+                        <select name="tappe[${idx}][id_autista]" class="form-select form-select-sm">
+                            ${_autistiOpts(idAutista)}
+                        </select>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label small mb-1">Mezzo</label>
+                        <select name="tappe[${idx}][id_mezzo]" class="form-select form-select-sm">
+                            ${_mezziOpts(idMezzo)}
+                        </select>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label small mb-1"><i class="ri-map-pin-line text-success"></i> Ritira da</label>
+                        <input type="text" name="tappe[${idx}][indirizzo_ritiro]"
+                               class="form-control form-control-sm tappa-da"
+                               value="${esc(ritiro)}" placeholder="Indirizzo ritiro..." autocomplete="off">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label small mb-1"><i class="ri-map-pin-line text-danger"></i> Consegna a</label>
+                        <input type="text" name="tappe[${idx}][indirizzo_consegna]"
+                               class="form-control form-control-sm tappa-a"
+                               value="${esc(consegna)}" placeholder="Indirizzo consegna..." autocomplete="off"
+                               oninput="sincronizzaDa('${prefix}', this)">
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label small mb-1">Note per l'autista</label>
+                        <input type="text" name="tappe[${idx}][note]"
+                               class="form-control form-control-sm"
+                               value="${esc(note)}" placeholder="Es: Chiamare prima di arrivare">
+                    </div>
+                </div>
+            </div>
+        </div>`;
+    }
+
+    // Sincronizza campi hidden indirizzo_ritiro/consegna dalla prima/ultima tappa
+    function sincronizzaIndirizziOrdine(prefix) {
+        const container = document.getElementById(prefix + '-tappe-container');
+        if (!container) return;
+        const items = Array.from(container.querySelectorAll('.tappa-item'));
+        if (!items.length) return;
+        const ritiro   = items[0].querySelector('.tappa-da')?.value || '';
+        const consegna = items[items.length - 1].querySelector('.tappa-a')?.value || '';
+        const hRitiro   = document.getElementById(prefix + '_indirizzo_ritiro');
+        const hConsegna = document.getElementById(prefix + '_indirizzo_consegna');
+        if (hRitiro)   hRitiro.value   = ritiro;
+        if (hConsegna) hConsegna.value = consegna;
+    }
+
+    // Google Maps Autocomplete sugli input delle tappe
+    function initAutocompleteTappe(container) {
+        if (!gmapsReady) return;
+        container.querySelectorAll('.tappa-da, .tappa-a').forEach(input => {
+            if (input.dataset.acInit) return;
+            try {
+                const ac = new google.maps.places.Autocomplete(input, {
+                    types: ['geocode'],
+                    componentRestrictions: { country: 'it' },
+                    fields: ['formatted_address']
+                });
+                ac.addListener('place_changed', function() {
+                    const place = ac.getPlace();
+                    if (place?.formatted_address) {
+                        input.value = place.formatted_address;
+                        const prefix = container.id.replace('-tappe-container', '');
+                        if (input.classList.contains('tappa-a')) sincronizzaDa(prefix, input);
+                        sincronizzaIndirizziOrdine(prefix);
+                    }
+                });
+                input.addEventListener('keydown', function(e) {
+                    if (e.key === 'Enter') {
+                        const pac = document.querySelector('.pac-container');
+                        if (pac && window.getComputedStyle(pac).display !== 'none') e.preventDefault();
+                    }
+                });
+                input.addEventListener('blur', function() {
+                    const prefix = container.id.replace('-tappe-container', '');
+                    sincronizzaIndirizziOrdine(prefix);
+                });
+                input.dataset.acInit = 'true';
+            } catch(e) { console.warn('Autocomplete tappa:', e); }
+        });
+    }
+
+    function aggiungiTappa(prefix, ritiro, consegna, idAutista, idMezzo, note) {
+        const container = document.getElementById(prefix + '-tappe-container');
+        const idx = tappaIdx++;
+        if (ritiro === undefined) {
+            const items = container.querySelectorAll('.tappa-item');
+            if (items.length === 0) {
+                // Prima tappa: usa indirizzo cliente se disponibile
+                ritiro = container.dataset.indirizzoCliente || '';
+            } else {
+                ritiro = items[items.length - 1].querySelector('.tappa-a')?.value || '';
+            }
+        }
+        container.insertAdjacentHTML('beforeend', _tappaHtml(prefix, idx, ritiro, consegna, idAutista, idMezzo, note));
+        aggiornaNumeraTappe(prefix);
+        initAutocompleteTappe(container);
+    }
+
+    function rimuoviTappa(prefix, btn) {
+        const container = document.getElementById(prefix + '-tappe-container');
+        if (container.querySelectorAll('.tappa-item').length <= 1) {
+            alert('Deve esserci almeno una tappa.'); return;
+        }
+        btn.closest('.tappa-item').remove();
+        aggiornaNumeraTappe(prefix);
+    }
+
+    function aggiornaNumeraTappe(prefix) {
+        const items = document.querySelectorAll(`#${prefix}-tappe-container .tappa-item`);
+        const totale = items.length;
+        items.forEach((item, i) => {
+            const n = item.querySelector('.tappa-num');
+            if (n) n.textContent = (i + 1) + (totale > 1 ? '/' + totale : '');
+            const rb = item.querySelector('.remove-tappa-btn');
+            if (rb) rb.style.display = totale <= 1 ? 'none' : '';
+        });
+    }
+
+    function sincronizzaDa(prefix, inputA) {
+        const container = document.getElementById(prefix + '-tappe-container');
+        const items = Array.from(container.querySelectorAll('.tappa-item'));
+        const idx = items.findIndex(item => item.querySelector('.tappa-a') === inputA);
+        if (idx >= 0 && idx < items.length - 1) {
+            const nd = items[idx + 1].querySelector('.tappa-da');
+            if (nd) nd.value = inputA.value;
+        }
+        sincronizzaIndirizziOrdine(prefix);
+    }
+
+    async function caricaTappeModal(prefix, idOrdine, indirizzoRitiro) {
+        const container = document.getElementById(prefix + '-tappe-container');
+        container.innerHTML = '<div class="text-center py-2 text-muted small"><span class="spinner-border spinner-border-sm me-1"></span> Caricamento tappe...</div>';
+        try {
+            const res  = await fetch('/azienda/ordine/' + idOrdine + '/tappe');
+            const data = await res.json();
+            container.innerHTML = '';
+            if (data.tappe && data.tappe.length > 0) {
+                data.tappe.forEach(t => aggiungiTappa(prefix, t.indirizzo_ritiro, t.indirizzo_consegna, t.id_autista, t.id_mezzo, t.note));
+            } else {
+                aggiungiTappa(prefix, indirizzoRitiro || '', '', data.id_autista, data.id_mezzo, '');
+            }
+        } catch(e) {
+            container.innerHTML = '<div class="alert alert-warning py-2 small">Impossibile caricare le tappe.</div>';
+        }
+    }
+
+    // Init CREATE modal: prima tappa quando si apre
+    document.getElementById('modalCreaOrdine')?.addEventListener('show.bs.modal', function() {
+        document.getElementById('crea-tappe-container').innerHTML = '';
+        aggiungiTappa('crea');
+    });
+
+    // Sync hidden fields prima del submit
+    document.getElementById('formCreaOrdine')?.addEventListener('submit', function() {
+        sincronizzaIndirizziOrdine('crea');
+    });
+    document.getElementById('formModificaOrdine')?.addEventListener('submit', function() {
+        sincronizzaIndirizziOrdine('mod');
+    });
+
 </script>
 
 <!-- ============================================ -->
@@ -1421,17 +1692,15 @@
         gmapsReady = true;
         console.log('[Logistia] Google Maps Autocomplete pronto');
         initAutocompleteOnFields();
+        // Inizializza autocomplete su tutti i container tappe già visibili
+        document.querySelectorAll('[id$="-tappe-container"]').forEach(c => initAutocompleteTappe(c));
     }
 
     function initAutocompleteOnFields() {
         if (!gmapsReady) return;
 
-        const campi = [
-            'crea_indirizzo_ritiro',
-            'crea_indirizzo_consegna',
-            'mod_indirizzo_ritiro',
-            'mod_indirizzo_consegna'
-        ];
+        // Solo campi visibili (gli indirizzi sono ora hidden e gestiti nelle tappe)
+        const campi = [];
 
         campi.forEach(id => {
             const input = document.getElementById(id);
@@ -1476,6 +1745,7 @@
         if (modalCreaEl) {
             modalCreaEl.addEventListener('shown.bs.modal', function() {
                 initAutocompleteOnFields();
+                initAutocompleteTappe(document.getElementById('crea-tappe-container'));
             });
         }
 
@@ -1483,6 +1753,7 @@
         if (modalModEl) {
             modalModEl.addEventListener('shown.bs.modal', function() {
                 initAutocompleteOnFields();
+                initAutocompleteTappe(document.getElementById('mod-tappe-container'));
             });
         }
     });

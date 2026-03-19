@@ -41,6 +41,7 @@ Route::any('admin/moduli',array('uses'=>'AdminController@moduli'));
 Route::any('admin/utenti',array('uses'=>'AdminController@utenti'));
 Route::any('admin/logout',array('uses'=>'AdminController@logout'));
 Route::any('admin/effettua_login', ('AdminController@effettua_login'))->name('effettua_login');
+Route::get('/admin/cerca-piva', 'AdminController@cercaPiva');
 
 //route Aziende
 Route::any('azienda/index',array('uses'=>'AziendaController@index'));
@@ -152,6 +153,7 @@ Route::options('/cantiere/crea', 'ApiController@creaCantiere');
 Route::any('/azienda/ordini-trasporto', 'TrasportiController@ordiniTrasporto');
 Route::get('/azienda/ordine-trasporto/{id}', 'TrasportiController@dettaglioOrdine');
 Route::post('/azienda/ordine-trasporto/cambia-stato', 'TrasportiController@cambiaStatoOrdine');
+Route::get('/azienda/ordine/{id}/tappe', 'TrasportiController@getTappe');
 
 // Clienti TMS
 Route::any('/azienda/clienti', 'TrasportiController@clienti');
@@ -208,6 +210,7 @@ Route::prefix('autista')->group(function () {
 
     // Consegne
     Route::get('/consegne', 'AutistaController@consegne');
+    Route::get('/debug-consegne', 'AutistaController@debugConsegne');
     Route::post('/consegna/{id}/inizia', 'AutistaController@iniziaConsegna');
     Route::post('/consegna/{id}/completa', 'AutistaController@completaConsegna');
     Route::post('/consegna/{id}/annulla', 'AutistaController@annullaConsegna');
@@ -216,9 +219,6 @@ Route::prefix('autista')->group(function () {
     // Navigatore
     Route::get('/navigatore', 'AutistaController@navigatore'); // Percorso del giorno
     Route::get('/navigatore/{id}', 'AutistaController@navigatoreSingolo'); // Singola consegna
-
-    // Storico km
-    Route::get('/storico', 'AutistaController@storico');
 
     // Profilo
     Route::get('/profilo', 'AutistaController@profilo');
@@ -297,6 +297,15 @@ Route::get('/azienda/get-dati-ordine/{id}', 'TrasportiController@getDatiOrdine')
 
 Route::get('/azienda/centro-operativo', 'TrasportiController@centroOperativo');
 Route::get('/azienda/centro-operativo/live', 'TrasportiController@centroOperativoLive');
+
+// Gestione Pedane
+Route::any('/azienda/pedane', 'TrasportiController@pedane');
+
+// Planning Autisti
+Route::get('/azienda/planning-autisti', 'PlanningController@index');
+Route::post('/azienda/planning-autisti/salva-giorno', 'PlanningController@salvaGiorno');
+Route::post('/azienda/planning-autisti/salva-regole', 'PlanningController@salvaRegole');
+Route::get('/azienda/planning-autisti/storico/{id}', 'PlanningController@storicoAutista');
 
 Route::post('/azienda/api/reports-tms', 'AziendaController@apiReportsTms');
 Route::post('/azienda/api/reports-tms/export', 'AziendaController@apiReportsTmsExport');

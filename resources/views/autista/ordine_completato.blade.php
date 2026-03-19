@@ -181,6 +181,70 @@
             font-size: 0.85rem;
             margin-top: 10px;
         }
+
+        /* Foto allegati */
+        .foto-item {
+            position: relative;
+            text-align: center;
+        }
+        .foto-item img {
+            width: 80px;
+            height: 80px;
+            object-fit: cover;
+            border-radius: 8px;
+            border: 2px solid #dee2e6;
+            cursor: pointer;
+        }
+        .foto-item .foto-tipo {
+            font-size: 9px;
+            text-transform: uppercase;
+            color: #666;
+            margin-top: 2px;
+        }
+        .pdf-thumb {
+            width: 80px;
+            height: 80px;
+            background: #fff5f5;
+            border: 2px solid #dee2e6;
+            border-radius: 8px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-size: 10px;
+            padding: 4px;
+            text-align: center;
+            overflow: hidden;
+        }
+        .pdf-thumb i { font-size: 24px; color: #dc3545; }
+        .nuova-foto-item {
+            position: relative;
+            display: inline-block;
+        }
+        .nuova-foto-item img {
+            width: 80px;
+            height: 80px;
+            object-fit: cover;
+            border-radius: 8px;
+            border: 2px solid #0d6efd;
+        }
+        .nuova-foto-item .remove-new {
+            position: absolute;
+            top: -6px;
+            right: -6px;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #dc3545;
+            color: white;
+            border: none;
+            font-size: 11px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
     </style>
 @endsection
 
@@ -290,6 +354,62 @@
                     </div>
                 </div>
 
+            </div>
+        </div>
+
+        <!-- Foto / Allegati -->
+        <div class="card mb-4">
+            <div class="card-header d-flex align-items-center justify-content-between">
+                <div class="d-flex align-items-center gap-2">
+                    <i class="ri-image-line fs-5"></i>
+                    <strong>Foto &amp; Allegati</strong>
+                    @if($foto->count() > 0)
+                        <span class="badge bg-secondary">{{ $foto->count() }}</span>
+                    @endif
+                </div>
+            </div>
+            <div class="card-body">
+                <!-- Foto esistenti -->
+                @if($foto->count() > 0)
+                    <div class="d-flex flex-wrap gap-2 mb-3" id="foto-esistenti">
+                        @foreach($foto as $f)
+                            @php
+                                $ext = strtolower(pathinfo($f->nome_file, PATHINFO_EXTENSION));
+                                $isPdf = $ext === 'pdf';
+                            @endphp
+                            <div class="foto-item" data-id="{{ $f->id }}">
+                                @if(!$isPdf)
+                                    <img src="/{{ $f->percorso_file }}" alt="{{ $f->tipo }}"
+                                         onclick="apriImmagine('/{{ $f->percorso_file }}')">
+                                @else
+                                    <div class="pdf-thumb" onclick="window.open('/{{ $f->percorso_file }}','_blank')">
+                                        <i class="ri-file-pdf-line"></i>
+                                        <span>{{ Str::limit($f->nome_file, 12) }}</span>
+                                    </div>
+                                @endif
+                                <div class="foto-tipo">{{ $f->tipo }}</div>
+                            </div>
+                        @endforeach
+                    </div>
+                @else
+                    <p class="text-muted small mb-3" id="nessuna-foto-msg">Nessuna foto allegata.</p>
+                @endif
+
+                <!-- Nuove foto (anteprime) -->
+                <div id="nuove-foto-preview" class="d-flex flex-wrap gap-2 mb-3"></div>
+
+                <!-- Bottoni upload -->
+                <div class="d-flex gap-2">
+                    <label class="btn btn-outline-primary btn-sm flex-fill text-center mb-0">
+                        <i class="ri-camera-line me-1"></i> Scatta Foto
+                        <input type="file" id="input_foto_camera" accept="image/*" capture="camera" multiple class="d-none" onchange="aggiungiNuovaFoto(this)">
+                    </label>
+                    <label class="btn btn-outline-secondary btn-sm flex-fill text-center mb-0">
+                        <i class="ri-folder-image-line me-1"></i> Galleria / PDF
+                        <input type="file" id="input_foto_galleria" accept="image/*,application/pdf" multiple class="d-none" onchange="aggiungiNuovaFoto(this)">
+                    </label>
+                </div>
+                <div id="upload-status" class="mt-2 small text-muted"></div>
             </div>
         </div>
 
@@ -508,6 +628,106 @@ Grazie per aver scelto {{ $azienda->ragione_sociale ?? $azienda->nome ?? 'i nost
 
             btn.innerHTML = originalText;
             btn.disabled = false;
+        }
+
+        // ── Upload foto post-completamento ──────────────────
+        const fotoInCoda = [];
+
+        function aggiungiNuovaFoto(input) {
+            const preview = document.getElementById('nuove-foto-preview');
+            Array.from(input.files).forEach(file => {
+                fotoInCoda.push(file);
+                const idx = fotoInCoda.length - 1;
+
+                const wrap = document.createElement('div');
+                wrap.className = 'nuova-foto-item';
+                wrap.dataset.idx = idx;
+
+                if (file.type.startsWith('image/')) {
+                    const reader = new FileReader();
+                    reader.onload = e => {
+                        wrap.innerHTML = `
+                            <img src="${e.target.result}" alt="foto">
+                            <button class="remove-new" onclick="rimuoviNuovaFoto(${idx})">×</button>`;
+                        // Auto-upload
+                        uploadFile(file, idx, wrap);
+                    };
+                    reader.readAsDataURL(file);
+                } else {
+                    wrap.innerHTML = `
+                        <div style="width:80px;height:80px;background:#fff5f5;border:2px solid #0d6efd;border-radius:8px;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:10px;padding:4px;text-align:center;">
+                            <i class="ri-file-pdf-line" style="font-size:24px;color:#dc3545;"></i>
+                            <span>${file.name.substring(0, 12)}</span>
+                        </div>
+                        <button class="remove-new" onclick="rimuoviNuovaFoto(${idx})">×</button>`;
+                    uploadFile(file, idx, wrap);
+                }
+
+                preview.appendChild(wrap);
+            });
+            input.value = '';
+        }
+
+        function rimuoviNuovaFoto(idx) {
+            fotoInCoda[idx] = null;
+            const el = document.querySelector(`[data-idx="${idx}"]`);
+            if (el) el.remove();
+        }
+
+        async function uploadFile(file, idx, wrap) {
+            const status = document.getElementById('upload-status');
+            status.textContent = 'Caricamento in corso...';
+
+            const formData = new FormData();
+            formData.append('foto', file);
+            formData.append('tipo', 'merce');
+            formData.append('_token', window.csrfToken);
+
+            try {
+                const res = await fetch('/autista/consegna/' + idOrdine + '/upload-foto', {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await res.json();
+
+                if (data.success) {
+                    // Segna come caricata (bordo verde)
+                    const img = wrap.querySelector('img, div');
+                    if (img) img.style.borderColor = '#198754';
+
+                    // Aggiunge alla griglia delle foto esistenti
+                    const existenti = document.getElementById('foto-esistenti');
+                    const msgNessuna = document.getElementById('nessuna-foto-msg');
+                    if (msgNessuna) msgNessuna.remove();
+                    if (!document.getElementById('foto-esistenti')) {
+                        const grid = document.createElement('div');
+                        grid.id = 'foto-esistenti';
+                        grid.className = 'd-flex flex-wrap gap-2 mb-3';
+                        document.getElementById('nuove-foto-preview').before(grid);
+                    }
+                    const nuovoEl = document.createElement('div');
+                    nuovoEl.className = 'foto-item';
+                    if (data.foto.url.match(/\.(jpg|jpeg|png|gif|webp)$/i)) {
+                        nuovoEl.innerHTML = `<img src="${data.foto.url}" onclick="apriImmagine('${data.foto.url}')"><div class="foto-tipo">${data.foto.tipo}</div>`;
+                    } else {
+                        nuovoEl.innerHTML = `<div class="pdf-thumb" onclick="window.open('${data.foto.url}','_blank')"><i class="ri-file-pdf-line"></i><span>${data.foto.nome.substring(0,12)}</span></div><div class="foto-tipo">${data.foto.tipo}</div>`;
+                    }
+                    document.getElementById('foto-esistenti').appendChild(nuovoEl);
+
+                    // Rimuovi dall'anteprima nuove
+                    setTimeout(() => { if (wrap.parentNode) wrap.remove(); }, 1000);
+                    status.textContent = 'Foto caricata!';
+                    setTimeout(() => { status.textContent = ''; }, 2000);
+                } else {
+                    status.textContent = 'Errore upload: ' + (data.message || 'riprova');
+                }
+            } catch(e) {
+                status.textContent = 'Errore di rete durante l\'upload.';
+            }
+        }
+
+        function apriImmagine(url) {
+            window.open(url, '_blank');
         }
     </script>
 @endsection

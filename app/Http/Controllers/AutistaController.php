@@ -14,6 +14,7 @@ class AutistaController extends Controller
 {
     public function __construct()
     {
+        if (function_exists('opcache_reset')) opcache_reset();
         $this->middleware(function ($request, $next) {
             if (!session()->has('utente')) {
                 return redirect('/admin/login');
@@ -86,58 +87,133 @@ class AutistaController extends Controller
     /**
      * Lista consegne
      */
+    public function debugConsegne()
+    {
+        $utente = session('utente');
+        $uid  = (int) $utente->id;
+        $oggi = date('Y-m-d');
+
+        // Tutti gli ordini visibili (senza filtro data)
+        $rows = DB::select("
+            SELECT ot.id, ot.numero_ordine, ot.stato,
+                   ot.id_autista AS ordine_id_autista,
+                   ot.indirizzo_ritiro   AS ordine_ritiro,
+                   ot.indirizzo_consegna AS ordine_consegna,
+                   tap.id               AS tappa_id,
+                   tap.numero_tappa,
+                   tap.id_autista        AS tappa_autista,
+                   tap.stato             AS tappa_stato,
+                   tap.indirizzo_ritiro  AS tappa_ritiro,
+                   tap.indirizzo_consegna AS tappa_consegna,
+                   COALESCE(tap.indirizzo_ritiro,   ot.indirizzo_ritiro)   AS ritiro_visibile,
+                   COALESCE(tap.indirizzo_consegna, ot.indirizzo_consegna) AS consegna_visibile
+            FROM ordini_trasporto ot
+            LEFT JOIN ordine_tappe tap ON tap.id_ordine = ot.id AND tap.id_autista = ?
+            WHERE (ot.id_autista = ? OR ot.id IN (
+                SELECT id_ordine FROM ordine_tappe WHERE id_autista = ?
+            ))
+            ORDER BY ot.id DESC
+        ", [$uid, $uid, $uid]);
+
+        // Tutte le tappe di quegli ordini
+        $ids = collect($rows)->pluck('id')->unique()->values()->toArray();
+        $tutteTappe = [];
+        if ($ids) {
+            $placeholders = implode(',', array_fill(0, count($ids), '?'));
+            $tutteTappe = DB::select("
+                SELECT t.*, u.nome, u.cognome
+                FROM ordine_tappe t
+                LEFT JOIN utenti u ON u.id = t.id_autista
+                WHERE t.id_ordine IN ($placeholders)
+                ORDER BY t.id_ordine, t.numero_tappa
+            ", $ids);
+        }
+
+        return response()->json([
+            'uid'        => $uid,
+            'oggi'       => $oggi,
+            'ordini'     => $rows,
+            'tutte_tappe' => $tutteTappe,
+        ]);
+    }
+
     public function consegne()
     {
         $utente = session('utente');
         $dispositivo = $this->getDispositivoUtente($utente->id);
 
-        // Prendi gli ordini di oggi (filtro su data_ritiro O data_consegna)
-        $consegne = DB::table('ordini_trasporto')
-            ->leftJoin('clienti', 'ordini_trasporto.id_cliente', '=', 'clienti.id')
-            ->leftJoin('mezzi', 'ordini_trasporto.id_mezzo', '=', 'mezzi.id')
-            ->where('ordini_trasporto.id_autista', $utente->id)
-            ->where(function($query) {
-                // Ordini con consegna prevista oggi
-                $query->whereDate('ordini_trasporto.data_consegna', date('Y-m-d'))
-                    // OPPURE ordini senza data consegna ma con ritiro oggi
-                    ->orWhere(function($q) {
-                        $q->whereNull('ordini_trasporto.data_consegna')
-                            ->whereDate('ordini_trasporto.data_ritiro', date('Y-m-d'));
-                    })
-                    // OPPURE ordini arretrati ancora non completati
-                    ->orWhere(function($q) {
-                        $q->whereDate('ordini_trasporto.data_consegna', '<', date('Y-m-d'))
-                            ->whereIn('ordini_trasporto.stato', ['assegnato', 'in_corso']);
-                    });
-            })
-            ->orderByRaw("CASE 
-                WHEN ordini_trasporto.stato = 'in_corso' THEN 1 
-                WHEN ordini_trasporto.stato = 'assegnato' THEN 2 
-                WHEN ordini_trasporto.stato = 'pianificato' THEN 3 
-                WHEN ordini_trasporto.stato = 'completato' THEN 4 
-                WHEN ordini_trasporto.stato = 'annullato' THEN 5 
-                ELSE 6 END")
-            ->orderBy('ordini_trasporto.data_ritiro', 'asc')
-            ->select([
-                'ordini_trasporto.id',
-                'ordini_trasporto.numero_ordine',
-                'ordini_trasporto.indirizzo_ritiro',
-                'ordini_trasporto.indirizzo_consegna',
-                'ordini_trasporto.data_ritiro',
-                'ordini_trasporto.ora_ritiro',
-                'ordini_trasporto.data_consegna',
-                'ordini_trasporto.ora_consegna',
-                'ordini_trasporto.descrizione_merce',
-                'ordini_trasporto.peso_kg',
-                'ordini_trasporto.note',
-                'ordini_trasporto.stato',
-                'ordini_trasporto.importo',
-                'clienti.ragione_sociale as cliente',
-                'mezzi.targa as targa_mezzo'
-            ])
-            ->get();
+        $uid  = (int) $utente->id;
+        $oggi = date('Y-m-d');
+
+        // Legge da ordine_tappe come tabella principale:
+        // ogni autista vede solo le sue tappe, con gli indirizzi della tappa (non dell'ordine)
+        $consegne = collect(DB::select("
+            SELECT
+                tap.id              AS tappa_id,
+                tap.numero_tappa,
+                tap.stato           AS tappa_stato,
+                tap.indirizzo_ritiro,
+                tap.indirizzo_consegna,
+                ot.id,
+                ot.numero_ordine,
+                ot.data_ritiro,
+                ot.ora_ritiro,
+                ot.data_consegna,
+                ot.ora_consegna,
+                ot.descrizione_merce,
+                ot.peso_kg,
+                ot.note,
+                ot.stato,
+                ot.importo,
+                c.ragione_sociale AS cliente,
+                COALESCE(mt.targa, mo.targa) AS targa_mezzo,
+                (SELECT MAX(numero_tappa) FROM ordine_tappe WHERE id_ordine = ot.id) AS totale_tappe,
+                (SELECT CONCAT(u2.nome,' ',u2.cognome)
+                 FROM ordine_tappe ot2
+                 JOIN utenti u2 ON u2.id = ot2.id_autista
+                 WHERE ot2.id_ordine = ot.id
+                   AND ot2.numero_tappa = tap.numero_tappa + 1
+                 LIMIT 1) AS prossimo_autista
+            FROM ordine_tappe tap
+            JOIN ordini_trasporto ot ON ot.id = tap.id_ordine
+            LEFT JOIN clienti c  ON c.id  = ot.id_cliente
+            LEFT JOIN mezzi   mt ON mt.id = tap.id_mezzo
+            LEFT JOIN mezzi   mo ON mo.id = ot.id_mezzo
+            WHERE tap.id_autista = ?
+              AND (
+                    DATE(ot.data_consegna) = ?
+                    OR (ot.data_consegna IS NULL AND DATE(ot.data_ritiro) = ?)
+                    OR (DATE(ot.data_consegna) < ? AND ot.stato IN ('assegnato','in_corso'))
+              )
+            ORDER BY
+                CASE ot.stato
+                    WHEN 'in_corso'    THEN 1
+                    WHEN 'assegnato'   THEN 2
+                    WHEN 'pianificato' THEN 3
+                    WHEN 'completato'  THEN 4
+                    WHEN 'annullato'   THEN 5
+                    ELSE 6
+                END,
+                ot.ora_ritiro ASC
+        ", [$uid, $oggi, $oggi, $oggi]));
 
         return view('autista.consegne', compact('utente', 'dispositivo', 'consegne'));
+    }
+
+    /**
+     * Verifica che l'autista sia autorizzato su un ordine:
+     * controlla sia la tappa (staffetta) sia l'assegnazione diretta (vecchi ordini)
+     */
+    private function autistaPuoAccedere($idOrdine, $idAutista): bool
+    {
+        return DB::table('ordine_tappe')
+            ->where('id_ordine', $idOrdine)
+            ->where('id_autista', $idAutista)
+            ->exists()
+            || DB::table('ordini_trasporto')
+            ->where('id', $idOrdine)
+            ->where('id_autista', $idAutista)
+            ->exists();
     }
 
     /**
@@ -147,12 +223,15 @@ class AutistaController extends Controller
     {
         $utente = session('utente');
 
+        if (!$this->autistaPuoAccedere($id, $utente->id)) {
+            return response()->json(['success' => false, 'message' => 'Non autorizzato']);
+        }
+
         $updated = DB::table('ordini_trasporto')
             ->where('id', $id)
-            ->where('id_autista', $utente->id)
             ->whereIn('stato', ['pianificato', 'assegnato'])
             ->update([
-                'stato' => 'in_corso',
+                'stato'      => 'in_corso',
                 'updated_at' => now(),
             ]);
 
@@ -217,25 +296,17 @@ class AutistaController extends Controller
             ]);
         }
 
-        // Recupera note esistenti
-        $consegna = DB::table('ordini_trasporto')
-            ->where('id', $id)
-            ->where('id_autista', $utente->id)
-            ->first();
-
-        if (!$consegna) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Consegna non trovata'
-            ]);
+        if (!$this->autistaPuoAccedere($id, $utente->id)) {
+            return response()->json(['success' => false, 'message' => 'Consegna non trovata']);
         }
 
+        $consegna = DB::table('ordini_trasporto')->where('id', $id)->first();
         $noteEsistenti = $consegna->note ?? '';
         $nuoveNote = trim($noteEsistenti . "\n\n[ANNULLATA " . date('d/m/Y H:i') . "]\nMotivo: " . $motivo);
 
         $data = [
-            'stato' => 'annullato',
-            'note' => $nuoveNote,
+            'stato'      => 'annullato',
+            'note'       => $nuoveNote,
             'updated_at' => now(),
         ];
 
@@ -251,7 +322,6 @@ class AutistaController extends Controller
 
         $updated = DB::table('ordini_trasporto')
             ->where('id', $id)
-            ->where('id_autista', $utente->id)
             ->whereIn('stato', ['pianificato', 'assegnato', 'in_corso'])
             ->update($data);
 
@@ -285,28 +355,20 @@ class AutistaController extends Controller
             ]);
         }
 
-        // Recupera consegna esistente
-        $consegna = DB::table('ordini_trasporto')
-            ->where('id', $id)
-            ->where('id_autista', $utente->id)
-            ->first();
-
-        if (!$consegna) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Consegna non trovata'
-            ]);
+        if (!$this->autistaPuoAccedere($id, $utente->id)) {
+            return response()->json(['success' => false, 'message' => 'Consegna non trovata']);
         }
 
+        $consegna     = DB::table('ordini_trasporto')->where('id', $id)->first();
         $noteEsistenti = $consegna->note ?? '';
-        $nuoveNote = trim($noteEsistenti . "\n\n[RINVIATA " . date('d/m/Y H:i') . "]\nNuova data: " . $nuovaData . ($nuovaOra ? " ore " . $nuovaOra : "") . "\nMotivo: " . $motivo);
+        $nuoveNote    = trim($noteEsistenti . "\n\n[RINVIATA " . date('d/m/Y H:i') . "]\nNuova data: " . $nuovaData . ($nuovaOra ? " ore " . $nuovaOra : "") . "\nMotivo: " . $motivo);
 
         $data = [
             'data_consegna' => $nuovaData,
-            'data_ritiro' => $nuovaData, // Aggiorna anche la data ritiro
-            'stato' => 'pianificato', // Torna a pianificato
-            'note' => $nuoveNote,
-            'updated_at' => now(),
+            'data_ritiro'   => $nuovaData,
+            'stato'         => 'pianificato',
+            'note'          => $nuoveNote,
+            'updated_at'    => now(),
         ];
 
         if ($nuovaOra) {
@@ -325,7 +387,6 @@ class AutistaController extends Controller
 
         $updated = DB::table('ordini_trasporto')
             ->where('id', $id)
-            ->where('id_autista', $utente->id)
             ->whereIn('stato', ['pianificato', 'assegnato', 'in_corso'])
             ->update($data);
 
@@ -769,24 +830,47 @@ class AutistaController extends Controller
         $this->is_loggato();
         $utente = session('utente');
 
-        // Recupera ordine assegnato a questo autista
+        // Recupera ordine (diretto O via tappa)
+        $miaTappa = DB::table('ordine_tappe')
+            ->where('id_ordine', $id)
+            ->where('id_autista', $utente->id)
+            ->whereIn('stato', ['in_corso', 'attesa'])
+            ->first();
+
         $ordine = DB::table('ordini_trasporto as ot')
             ->leftJoin('mezzi as m', 'ot.id_mezzo', '=', 'm.id')
             ->leftJoin('clienti as c', 'ot.id_cliente', '=', 'c.id')
             ->where('ot.id', $id)
-            ->where('ot.id_autista', $utente->id)
-            ->select(
-                'ot.*',
-                'm.targa',
-                'm.marca as mezzo_marca',
-                'm.modello as mezzo_modello',
-                'c.ragione_sociale as cliente_nome',
-                'c.partita_iva as cliente_piva'
-            )
+            ->where(function($q) use ($utente, $miaTappa) {
+                $q->where('ot.id_autista', $utente->id);
+                if ($miaTappa) $q->orWhere('ot.id', $miaTappa->id_ordine);
+            })
+            ->select('ot.*', 'm.targa', 'm.marca as mezzo_marca', 'm.modello as mezzo_modello',
+                'c.ragione_sociale as cliente_nome', 'c.piva as cliente_piva')
             ->first();
 
         if (!$ordine) {
             return redirect('/autista/consegne')->with('error', 'Ordine non trovato');
+        }
+
+        // Se ha una tappa, usa gli indirizzi della tappa
+        if ($miaTappa) {
+            $ordine->indirizzo_ritiro   = $miaTappa->indirizzo_ritiro;
+            $ordine->indirizzo_consegna = $miaTappa->indirizzo_consegna;
+        }
+
+        // Tappa successiva (per mostrare a chi passa il carico)
+        $prossimaTappa = null;
+        $totaleTappe   = 0;
+        if ($miaTappa) {
+            $totaleTappe = DB::table('ordine_tappe')->where('id_ordine', $id)->count();
+            $prossimaTappa = DB::table('ordine_tappe as tap')
+                ->leftJoin('utenti as u', 'tap.id_autista', '=', 'u.id')
+                ->where('tap.id_ordine', $id)
+                ->where('tap.numero_tappa', '>', $miaTappa->numero_tappa)
+                ->orderBy('tap.numero_tappa')
+                ->select('tap.*', 'u.nome as autista_nome', 'u.cognome as autista_cognome')
+                ->first();
         }
 
         // Recupera DDT dell'ordine
@@ -804,7 +888,7 @@ class AutistaController extends Controller
             ->where('id', $ordine->id_azienda)
             ->first();
 
-        return view('autista.completa_ordine', compact('ordine', 'ddt', 'azienda'));
+        return view('autista.completa_ordine', compact('ordine', 'ddt', 'azienda', 'miaTappa', 'prossimaTappa', 'totaleTappe'));
     }
 
     /**
@@ -905,25 +989,97 @@ class AutistaController extends Controller
 
         $idOrdine = $request->input('id_ordine');
 
-        // Verifica ordine
+        // Verifica accesso: diretto o via tappa
         $ordine = DB::table('ordini_trasporto')
             ->where('id', $idOrdine)
             ->where('id_autista', $utente->id)
             ->first();
 
+        $miaTappa = null;
+        if (!$ordine) {
+            // Cerca tappa attiva per questo autista
+            $miaTappa = DB::table('ordine_tappe')
+                ->where('id_ordine', $idOrdine)
+                ->where('id_autista', $utente->id)
+                ->whereIn('stato', ['in_corso', 'attesa'])
+                ->first();
+            if ($miaTappa) {
+                $ordine = DB::table('ordini_trasporto')->where('id', $idOrdine)->first();
+            }
+        } else {
+            // Controlla se ha anche una tappa
+            $miaTappa = DB::table('ordine_tappe')
+                ->where('id_ordine', $idOrdine)
+                ->where('id_autista', $utente->id)
+                ->whereIn('stato', ['in_corso', 'attesa'])
+                ->first();
+        }
+
         if (!$ordine) {
             return response()->json(['success' => false, 'message' => 'Ordine non trovato']);
         }
 
-        // Verifica che ci siano entrambe le firme
+        // ── LOGICA STAFFETTA: se ha una tappa attiva ─────────────────
+        if ($miaTappa) {
+            // Segna la tappa come completata
+            DB::table('ordine_tappe')
+                ->where('id', $miaTappa->id)
+                ->update(['stato' => 'completato', 'completato_at' => now(), 'updated_at' => now()]);
+
+            // Cerca la tappa successiva
+            $prossimaTappa = DB::table('ordine_tappe as tap')
+                ->leftJoin('utenti as u', 'tap.id_autista', '=', 'u.id')
+                ->where('tap.id_ordine', $idOrdine)
+                ->where('tap.numero_tappa', '>', $miaTappa->numero_tappa)
+                ->orderBy('tap.numero_tappa')
+                ->select('tap.*', 'u.nome as prossimo_nome', 'u.cognome as prossimo_cognome')
+                ->first();
+
+            if ($prossimaTappa) {
+                // Attiva la tappa successiva
+                DB::table('ordine_tappe')
+                    ->where('id', $prossimaTappa->id)
+                    ->update(['stato' => 'in_corso', 'updated_at' => now()]);
+
+                // Aggiorna l'autista corrente sull'ordine
+                DB::table('ordini_trasporto')
+                    ->where('id', $idOrdine)
+                    ->update([
+                        'id_autista' => $prossimaTappa->id_autista,
+                        'id_mezzo'   => $prossimaTappa->id_mezzo,
+                        'stato'      => 'in_corso',
+                        'updated_at' => now(),
+                    ]);
+
+                // Notifica il prossimo autista
+                if ($prossimaTappa->id_autista) {
+                    self::creaNotifica(
+                        $prossimaTappa->id_autista,
+                        $ordine->id_azienda,
+                        'nuovo_ordine',
+                        '📦 Carico pronto — Tappa ' . $prossimaTappa->numero_tappa,
+                        'Ritira da: ' . $prossimaTappa->indirizzo_ritiro,
+                        $idOrdine
+                    );
+                }
+
+                $nomeSuccessivo = trim(($prossimaTappa->prossimo_nome ?? '') . ' ' . ($prossimaTappa->prossimo_cognome ?? '')) ?: 'prossimo autista';
+                return response()->json([
+                    'success'  => true,
+                    'message'  => 'Tappa completata! Carico passato a ' . $nomeSuccessivo,
+                    'redirect' => '/autista/consegne',
+                    'tipo'     => 'tappa',
+                ]);
+            }
+            // Se non c'è tappa successiva: è l'ultima → procede col completamento ordine
+        }
+        // ─────────────────────────────────────────────────────────────
+
+        // Recupera il DDT associato (senza obbligo di firme)
         $ddt = DB::table('documenti_trasporto')
             ->where('id_ordine', $idOrdine)
             ->where('tipo_documento', 'ddt')
             ->first();
-
-        if (!$ddt || !$ddt->firma_vettore || !$ddt->firma_destinatario) {
-            return response()->json(['success' => false, 'message' => 'Raccogli entrambe le firme prima di completare']);
-        }
 
         // Genera token pubblico per condivisione (se non esiste già)
         $tokenPubblico = $ddt->token_pubblico;
@@ -931,15 +1087,25 @@ class AutistaController extends Controller
             $tokenPubblico = bin2hex(random_bytes(32)); // 64 caratteri hex
         }
 
+        // Pedane ritirate (null se l'ordine non prevedeva pedane)
+        $pedaneRitirate = null;
+        if (intval($ordine->pedane_da_ritirare ?? 0) > 0) {
+            $pedaneRitirate = intval($request->input('pedane_ritirate', 0));
+        }
+
         // Aggiorna stato ordine a completato
+        $updateOrdine = [
+            'stato'         => 'completato',
+            'data_consegna' => now()->toDateString(),
+            'ora_consegna'  => now()->format('H:i'),
+            'updated_at'    => now(),
+        ];
+        if ($pedaneRitirate !== null) {
+            $updateOrdine['pedane_ritirate'] = $pedaneRitirate;
+        }
         DB::table('ordini_trasporto')
             ->where('id', $idOrdine)
-            ->update([
-                'stato' => 'completato',
-                'data_consegna' => now()->toDateString(),
-                'ora_consegna' => now()->format('H:i'),
-                'updated_at' => now()
-            ]);
+            ->update($updateOrdine);
 
         // Aggiorna DDT con data consegna e token pubblico
         DB::table('documenti_trasporto')
@@ -949,6 +1115,22 @@ class AutistaController extends Controller
                 'token_pubblico' => $tokenPubblico,
                 'updated_at' => now()
             ]);
+
+        // Crea movimento pedane ritirate
+        if ($pedaneRitirate !== null) {
+            DB::table('pedane_movimenti')->insert([
+                'id_azienda' => $ordine->id_azienda,
+                'id_cliente' => $ordine->id_cliente,
+                'id_ordine'  => $idOrdine,
+                'tipo'       => 'ritirata',
+                'quantita'   => $pedaneRitirate,
+                'data'       => now()->toDateString(),
+                'note'       => 'Ritiro alla consegna ordine ' . $ordine->numero_ordine,
+                'id_autista' => $utente->id,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        }
 
         // Redirect alla pagina riepilogo
         return response()->json([
@@ -1041,6 +1223,12 @@ class AutistaController extends Controller
 
         $messaggio_email .= "\n\nCordiali saluti,\n" . ($azienda->ragione_sociale ?? $azienda->nome ?? '');
 
+        // Recupera foto già caricate
+        $foto = DB::table('foto_consegna')
+            ->where('id_ordine', $id)
+            ->orderBy('created_at', 'asc')
+            ->get();
+
         return view('autista.ordine_completato', compact(
             'ordine',
             'ddt',
@@ -1049,7 +1237,8 @@ class AutistaController extends Controller
             'email_cliente',
             'messaggio_whatsapp',
             'messaggio_email',
-            'link_pdf_pubblico'
+            'link_pdf_pubblico',
+            'foto'
         ));
     }
 
@@ -2099,10 +2288,10 @@ class AutistaController extends Controller
     public function storicoOrdini(Request $request)
     {
         $utente = session('utente');
-        $dispositivo = $this->getDispositivoUtente($utente->id);
 
-        $periodo = $request->input('periodo', 'settimana');
-        $stato = $request->input('stato', 'tutti');
+        $periodo  = $request->input('periodo', 'mese');
+        $stato    = $request->input('stato', 'tutti');
+        $dataFine = null;
 
         // Calcola date in base al periodo
         switch ($periodo) {
@@ -2117,50 +2306,60 @@ class AutistaController extends Controller
                 break;
             case 'mese_scorso':
                 $dataInizio = date('Y-m-01', strtotime('-1 month'));
-                $dataFine = date('Y-m-t', strtotime('-1 month'));
+                $dataFine   = date('Y-m-t',  strtotime('-1 month'));
                 break;
             default:
-                $dataInizio = date('Y-m-d', strtotime('-7 days'));
+                $dataInizio = date('Y-m-01');
         }
 
-        $query = DB::table('ordini_trasporto')
-            ->leftJoin('clienti', 'ordini_trasporto.id_cliente', '=', 'clienti.id')
-            ->where('ordini_trasporto.id_autista', $utente->id)
-            ->where('ordini_trasporto.data_consegna', '>=', $dataInizio)
-            ->select([
-                'ordini_trasporto.id',
-                'ordini_trasporto.numero_ordine',
-                'ordini_trasporto.indirizzo_ritiro',
-                'ordini_trasporto.indirizzo_consegna',
-                'ordini_trasporto.data_ritiro',
-                'ordini_trasporto.data_consegna',
-                'ordini_trasporto.data_completamento',
-                'ordini_trasporto.descrizione_merce',
-                'ordini_trasporto.peso_kg',
-                'ordini_trasporto.km_percorsi',
-                'ordini_trasporto.stato',
-                'ordini_trasporto.note_autista',
-                'clienti.ragione_sociale as cliente'
-            ]);
+        // Query via ordine_tappe (stesso sistema di consegne/pianoGiornaliero)
+        // usa data_ritiro come fallback quando data_consegna è NULL
+        $sql = "
+            SELECT DISTINCT
+                   ot.id,
+                   ot.numero_ordine,
+                   COALESCE(tap.indirizzo_ritiro,  ot.indirizzo_ritiro)  AS indirizzo_ritiro,
+                   COALESCE(tap.indirizzo_consegna, ot.indirizzo_consegna) AS indirizzo_consegna,
+                   ot.data_ritiro,
+                   ot.data_consegna,
+                   ot.data_completamento,
+                   ot.descrizione_merce,
+                   ot.peso_kg,
+                   ot.km_totali  AS km_percorsi,
+                   ot.stato,
+                   ot.note_autista,
+                   c.ragione_sociale AS cliente
+            FROM ordine_tappe tap
+            JOIN ordini_trasporto ot ON ot.id = tap.id_ordine
+            LEFT JOIN clienti c ON c.id = ot.id_cliente
+            WHERE tap.id_autista = ?
+              AND ot.id_azienda  = ?
+              AND COALESCE(DATE(ot.data_consegna), DATE(ot.data_ritiro)) >= ?
+        ";
+        $params = [$utente->id, $utente->id_azienda, $dataInizio];
 
-        if (isset($dataFine)) {
-            $query->where('ordini_trasporto.data_consegna', '<=', $dataFine);
+        if ($dataFine) {
+            $sql      .= " AND COALESCE(DATE(ot.data_consegna), DATE(ot.data_ritiro)) <= ?";
+            $params[]  = $dataFine;
         }
 
         if ($stato !== 'tutti') {
-            $query->where('ordini_trasporto.stato', $stato);
+            $sql      .= " AND ot.stato = ?";
+            $params[]  = $stato;
         }
 
-        $ordini = $query->orderBy('ordini_trasporto.data_consegna', 'desc')->get();
+        $sql .= " ORDER BY COALESCE(ot.data_consegna, ot.data_ritiro) DESC";
+
+        $ordini = collect(DB::select($sql, $params));
 
         // Statistiche riepilogo
         $stats = [
             'totale_ordini' => $ordini->count(),
-            'completati' => $ordini->where('stato', 'completato')->count(),
-            'km_totali' => $ordini->sum('km_percorsi') ?: 0,
+            'completati'    => $ordini->where('stato', 'completato')->count(),
+            'km_totali'     => $ordini->sum('km_percorsi') ?: 0,
         ];
 
-        return view('autista.storico', compact('utente', 'dispositivo', 'ordini', 'stats', 'periodo', 'stato'));
+        return view('autista.storico', compact('utente', 'ordini', 'stats', 'periodo', 'stato'));
     }
 
 
@@ -2378,30 +2577,55 @@ class AutistaController extends Controller
         $utente = session('utente');
         $data = $request->get('data', date('Y-m-d'));
 
-        // Recupera gli ordini assegnati all'autista per la data selezionata
-        $ordini = DB::table('ordini_trasporto as ot')
-            ->leftJoin('clienti as c', 'ot.id_cliente', '=', 'c.id')
-            ->where('ot.id_autista', $utente->id)
-            ->where('ot.id_azienda', $utente->id_azienda)
-            ->where('ot.data_consegna', $data)
-            ->whereIn('ot.stato', ['assegnato', 'pianificato', 'in_corso', 'completato'])
-            ->select(
-                'ot.id',
-                'ot.numero_ordine',
-                'ot.indirizzo_ritiro',
-                'ot.indirizzo_consegna',
-                'ot.descrizione_merce',
-                'ot.peso_kg',
-                'ot.note',
-                'ot.ora_ritiro',
-                'ot.ora_consegna',
-                'ot.stato',
-                'c.ragione_sociale as cliente_nome',
-                'c.telefono as cliente_telefono',
-                'c.indirizzo as cliente_indirizzo'
-            )
-            ->orderBy('ot.ora_ritiro', 'asc')
-            ->get();
+        // Stessa logica di consegne(): data_consegna, fallback data_ritiro, scaduti ancora attivi
+        $ordini = collect(DB::select("
+            SELECT
+                tap.id              AS tappa_id,
+                tap.numero_tappa,
+                tap.stato           AS tappa_stato,
+                tap.indirizzo_ritiro,
+                tap.indirizzo_consegna,
+                ot.id,
+                ot.numero_ordine,
+                ot.data_ritiro,
+                ot.ora_ritiro,
+                ot.data_consegna,
+                ot.ora_consegna,
+                ot.descrizione_merce,
+                ot.peso_kg,
+                ot.numero_colli,
+                ot.tipo_unita,
+                ot.note,
+                ot.stato,
+                ot.importo,
+                c.ragione_sociale   AS cliente_nome,
+                c.telefono          AS cliente_telefono,
+                c.indirizzo         AS cliente_indirizzo,
+                COALESCE(mt.targa, mo.targa) AS targa_mezzo,
+                (SELECT MAX(numero_tappa) FROM ordine_tappe WHERE id_ordine = ot.id) AS totale_tappe
+            FROM ordine_tappe tap
+            JOIN ordini_trasporto ot ON ot.id = tap.id_ordine
+            LEFT JOIN clienti c  ON c.id  = ot.id_cliente
+            LEFT JOIN mezzi   mt ON mt.id = tap.id_mezzo
+            LEFT JOIN mezzi   mo ON mo.id = ot.id_mezzo
+            WHERE tap.id_autista = ?
+              AND ot.id_azienda  = ?
+              AND (
+                    DATE(ot.data_consegna) = ?
+                    OR (ot.data_consegna IS NULL AND DATE(ot.data_ritiro) = ?)
+                    OR (DATE(ot.data_consegna) < ? AND ot.stato IN ('assegnato','in_corso'))
+              )
+            ORDER BY
+                CASE ot.stato
+                    WHEN 'in_corso'    THEN 1
+                    WHEN 'assegnato'   THEN 2
+                    WHEN 'pianificato' THEN 3
+                    WHEN 'completato'  THEN 4
+                    WHEN 'annullato'   THEN 5
+                    ELSE 6
+                END,
+                ot.ora_ritiro ASC
+        ", [$utente->id, $utente->id_azienda, $data, $data, $data]));
 
         // Recupera info mezzo dell'autista
         $mezzo = DB::table('mezzi as m')

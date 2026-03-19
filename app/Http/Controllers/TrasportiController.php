@@ -40,7 +40,23 @@ class TrasportiController extends Controller
                 $this->eliminaOrdine($dati, $utente);
             }
 
-            return redirect('/azienda/ordini-trasporto')->with('success', 'Operazione completata!');
+            // Controlla blocco planning autista
+            $warningPlanning = null;
+            if (!empty($dati['id_autista']) && !empty($dati['data_ritiro'])) {
+                $idAutistaAssegnato = (int) $dati['id_autista'];
+                $dataRitiro = $dati['data_ritiro'];
+                if (\App\Http\Controllers\PlanningController::isAutistaBloccato($idAutistaAssegnato, $dataRitiro, $utente->id_azienda)) {
+                    $autistaNome = DB::table('utenti')->where('id', $idAutistaAssegnato)->value('nome');
+                    $autistaCognome = DB::table('utenti')->where('id', $idAutistaAssegnato)->value('cognome');
+                    $warningPlanning = 'Attenzione: l\'autista ' . $autistaNome . ' ' . $autistaCognome . ' è in blocco riposo il ' . \Carbon\Carbon::parse($dataRitiro)->format('d/m/Y');
+                }
+            }
+
+            $redirect = redirect('/azienda/ordini-trasporto')->with('success', 'Operazione completata!');
+            if ($warningPlanning) {
+                $redirect = $redirect->with('warning', $warningPlanning);
+            }
+            return $redirect;
         }
 
         // Filtri per stato
@@ -178,7 +194,7 @@ class TrasportiController extends Controller
                 'c.indirizzo as cliente_indirizzo',
                 'c.telefono as cliente_telefono',
                 'c.email as cliente_email',
-                'c.partita_iva as cliente_piva',
+                'c.piva as cliente_piva',
                 'c.codice_fiscale as cliente_cf',
                 'm.targa',
                 'm.tipo as mezzo_marca',
@@ -238,7 +254,7 @@ class TrasportiController extends Controller
                 'ot.*',
                 'c.ragione_sociale as cliente_nome',
                 'c.indirizzo as cliente_indirizzo',
-                'c.partita_iva as cliente_piva',
+                'c.piva as cliente_piva',
                 'c.codice_fiscale as cliente_cf',
                 'm.targa',
                 'm.tipo as mezzo_marca',
@@ -486,7 +502,7 @@ class TrasportiController extends Controller
                     'indirizzo' => $dati['indirizzo'] ?? null,
                     'telefono' => $dati['telefono'] ?? null,
                     'email' => $dati['email'] ?? null,
-                    'partita_iva' => $dati['partita_iva'] ?? null,
+                    'piva' => $dati['partita_iva'] ?? null,
                     'codice_fiscale' => $dati['codice_fiscale'] ?? null,
                     'id_azienda' => $utente->id_azienda,
                     'created_at' => now(),
@@ -501,7 +517,7 @@ class TrasportiController extends Controller
                         'indirizzo' => $dati['indirizzo'] ?? null,
                         'telefono' => $dati['telefono'] ?? null,
                         'email' => $dati['email'] ?? null,
-                        'partita_iva' => $dati['partita_iva'] ?? null,
+                        'piva' => $dati['partita_iva'] ?? null,
                         'codice_fiscale' => $dati['codice_fiscale'] ?? null,
                         'updated_at' => now()
                     ]);
@@ -1329,6 +1345,37 @@ class TrasportiController extends Controller
 // =====================================================
 
     /**
+     * Restituisce le tappe di un ordine (JSON)
+     * GET /azienda/ordine/{id}/tappe
+     */
+    public function getTappe($id)
+    {
+        $utente = session('utente');
+        $ordine = DB::table('ordini_trasporto')
+            ->where('id', $id)
+            ->where('id_azienda', $utente->id_azienda)
+            ->first();
+
+        if (!$ordine) {
+            return response()->json(['success' => false, 'tappe' => []]);
+        }
+
+        $tappe = DB::table('ordine_tappe')
+            ->where('id_ordine', $id)
+            ->orderBy('numero_tappa')
+            ->get();
+
+        return response()->json([
+            'success'           => true,
+            'tappe'             => $tappe,
+            'id_autista'        => $ordine->id_autista,
+            'id_mezzo'          => $ordine->id_mezzo,
+            'indirizzo_ritiro'  => $ordine->indirizzo_ritiro,
+            'indirizzo_consegna'=> $ordine->indirizzo_consegna,
+        ]);
+    }
+
+    /**
      * Crea nuovo ordine di trasporto + DDT automatico
      */
     private function creaOrdine($dati, $utente)
@@ -1356,11 +1403,24 @@ class TrasportiController extends Controller
         }
 
         // Inserisci ordine
+        // Determina id_autista / id_mezzo dalla prima tappa (se presente)
+        $primaAutistaDaTappa = null;
+        $primoMezzoDaTappa   = null;
+        if (!empty($dati['tappe']) && is_array($dati['tappe'])) {
+            foreach (array_values($dati['tappe']) as $t) {
+                if (!empty($t['indirizzo_ritiro']) || !empty($t['indirizzo_consegna'])) {
+                    $primaAutistaDaTappa = !empty($t['id_autista']) ? intval($t['id_autista']) : null;
+                    $primoMezzoDaTappa   = !empty($t['id_mezzo'])   ? intval($t['id_mezzo'])   : null;
+                    break;
+                }
+            }
+        }
+
         $idOrdine = DB::table('ordini_trasporto')->insertGetId([
             'numero_ordine' => $numeroOrdine,
             'id_cliente' => $dati['id_cliente'],
-            'id_mezzo' => $dati['id_mezzo'] ?? null,
-            'id_autista' => $dati['id_autista'] ?? null,
+            'id_mezzo' => $primoMezzoDaTappa ?? ($dati['id_mezzo'] ?? null),
+            'id_autista' => $primaAutistaDaTappa ?? ($dati['id_autista'] ?? null),
             'indirizzo_ritiro' => $dati['indirizzo_ritiro'],
             'indirizzo_consegna' => $dati['indirizzo_consegna'],
             'data_ritiro' => $dati['data_ritiro'],
@@ -1368,6 +1428,7 @@ class TrasportiController extends Controller
             'data_consegna' => $dati['data_consegna'] ?? null,
             'ora_consegna' => $dati['ora_consegna'] ?? null,
             'descrizione_merce' => $dati['descrizione_merce'],
+            'tipo_unita' => in_array($dati['tipo_unita'] ?? '', ['colli','pedane']) ? $dati['tipo_unita'] : 'colli',
             'numero_colli' => $dati['numero_colli'] ?? null,
             'peso_kg' => $dati['peso_kg'] ?? null,
             'km_totali' => $dati['km_totali'] ?? null,
@@ -1377,11 +1438,77 @@ class TrasportiController extends Controller
             'importo_manuale' => $importoManuale,
             'id_tariffa_applicata' => $idTariffaApplicata,
             'dettaglio_costo' => $dettaglioCosto,
+            'pedane_consegnate' => intval($dati['pedane_consegnate'] ?? 0),
+            'pedane_da_ritirare' => intval($dati['pedane_da_ritirare'] ?? 0),
             'stato' => 'pianificato',
             'id_azienda' => $utente->id_azienda,
             'created_at' => now(),
             'updated_at' => now()
         ]);
+
+        // ============================================
+        // SALVA TAPPE (sempre almeno 1 tappa per ordine)
+        // ============================================
+        // Se il form non ha inviato tappe (vecchio codice / edge case),
+        // crea automaticamente una tappa di default con i dati dell'ordine
+        if (empty($dati['tappe']) || !is_array($dati['tappe'])) {
+            $dati['tappe'] = [[
+                'id_autista'         => $dati['id_autista']         ?? null,
+                'id_mezzo'           => $dati['id_mezzo']           ?? null,
+                'indirizzo_ritiro'   => $dati['indirizzo_ritiro']   ?? '',
+                'indirizzo_consegna' => $dati['indirizzo_consegna'] ?? '',
+                'note'               => '',
+            ]];
+        }
+
+        $numero = 1;
+        foreach (array_values($dati['tappe']) as $t) {
+            $ritiro   = trim($t['indirizzo_ritiro']   ?? '');
+            $consegna = trim($t['indirizzo_consegna'] ?? '');
+            if (!$ritiro && !$consegna) continue;
+            DB::table('ordine_tappe')->insert([
+                'id_ordine'          => $idOrdine,
+                'numero_tappa'       => $numero,
+                'id_autista'         => !empty($t['id_autista']) ? intval($t['id_autista']) : null,
+                'id_mezzo'           => !empty($t['id_mezzo'])   ? intval($t['id_mezzo'])   : null,
+                'indirizzo_ritiro'   => $ritiro   ?: ($dati['indirizzo_ritiro'] ?? ''),
+                'indirizzo_consegna' => $consegna ?: ($dati['indirizzo_consegna'] ?? ''),
+                'note'               => $t['note'] ?? null,
+                'stato'              => $numero === 1 ? 'in_corso' : 'attesa',
+                'created_at'         => now(),
+                'updated_at'         => now(),
+            ]);
+            // notifica autista di ogni tappa
+            if (!empty($t['id_autista'])) {
+                AutistaController::creaNotifica(
+                    intval($t['id_autista']),
+                    $utente->id_azienda,
+                    'nuovo_ordine',
+                    '📦 Nuovo ordine - Tappa ' . $numero,
+                    'Ordine ' . $numeroOrdine . ' — Ritira da: ' . ($ritiro ?: ($dati['indirizzo_ritiro'] ?? '')),
+                    $idOrdine
+                );
+            }
+            $numero++;
+        }
+
+        // ============================================
+        // MOVIMENTO PEDANE AUTOMATICO (se previste)
+        // ============================================
+        if (intval($dati['pedane_consegnate'] ?? 0) > 0) {
+            DB::table('pedane_movimenti')->insert([
+                'id_azienda'  => $utente->id_azienda,
+                'id_cliente'  => $dati['id_cliente'],
+                'id_ordine'   => $idOrdine,
+                'tipo'        => 'consegnata',
+                'quantita'    => intval($dati['pedane_consegnate']),
+                'data'        => $dati['data_ritiro'],
+                'note'        => 'Creazione automatica da ordine',
+                'created_by'  => $utente->id,
+                'created_at'  => now(),
+                'updated_at'  => now(),
+            ]);
+        }
 
         // ============================================
         // GENERAZIONE AUTOMATICA DDT (se checkbox attiva)
@@ -1475,6 +1602,40 @@ class TrasportiController extends Controller
         }
 
         // ============================================
+        // AGGIORNA TAPPE (staffetta multi-autista)
+        // ============================================
+        if (isset($dati['tappe']) && is_array($dati['tappe'])) {
+            DB::table('ordine_tappe')->where('id_ordine', $dati['id_ordine'])->delete();
+            $numero = 1;
+            $primaAutistaDaTappa = null;
+            $primoMezzoDaTappa   = null;
+            foreach (array_values($dati['tappe']) as $t) {
+                $ritiro   = trim($t['indirizzo_ritiro']   ?? '');
+                $consegna = trim($t['indirizzo_consegna'] ?? '');
+                if (!$ritiro && !$consegna) continue;
+                DB::table('ordine_tappe')->insert([
+                    'id_ordine'          => $dati['id_ordine'],
+                    'numero_tappa'       => $numero,
+                    'id_autista'         => !empty($t['id_autista']) ? intval($t['id_autista']) : null,
+                    'id_mezzo'           => !empty($t['id_mezzo'])   ? intval($t['id_mezzo'])   : null,
+                    'indirizzo_ritiro'   => $ritiro   ?: $dati['indirizzo_ritiro'],
+                    'indirizzo_consegna' => $consegna ?: $dati['indirizzo_consegna'],
+                    'note'               => $t['note'] ?? null,
+                    'stato'              => $numero === 1 ? 'in_corso' : 'attesa',
+                    'created_at'         => now(),
+                    'updated_at'         => now(),
+                ]);
+                if ($numero === 1) {
+                    $primaAutistaDaTappa = !empty($t['id_autista']) ? intval($t['id_autista']) : null;
+                    $primoMezzoDaTappa   = !empty($t['id_mezzo'])   ? intval($t['id_mezzo'])   : null;
+                }
+                $numero++;
+            }
+            $dati['id_autista'] = $primaAutistaDaTappa;
+            $dati['id_mezzo']   = $primoMezzoDaTappa;
+        }
+
+        // ============================================
         // NOTIFICA: leggi autista PRIMA dell'update
         // ============================================
         $nuovoAutista = $dati['id_autista'] ?? null;
@@ -1497,6 +1658,7 @@ class TrasportiController extends Controller
                 'data_consegna' => $dati['data_consegna'] ?? null,
                 'ora_consegna' => $dati['ora_consegna'] ?? null,
                 'descrizione_merce' => $dati['descrizione_merce'],
+                'tipo_unita' => in_array($dati['tipo_unita'] ?? '', ['colli','pedane']) ? $dati['tipo_unita'] : 'colli',
                 'numero_colli' => $dati['numero_colli'] ?? null,
                 'peso_kg' => $dati['peso_kg'] ?? null,
                 'km_totali' => $dati['km_totali'] ?? null,
@@ -1506,6 +1668,8 @@ class TrasportiController extends Controller
                 'importo_manuale' => $importoManuale,
                 'id_tariffa_applicata' => $idTariffaApplicata,
                 'dettaglio_costo' => $dettaglioCosto,
+                'pedane_consegnate' => intval($dati['pedane_consegnate'] ?? 0),
+                'pedane_da_ritirare' => intval($dati['pedane_da_ritirare'] ?? 0),
                 'updated_at' => now()
             ]);
 
@@ -1643,15 +1807,19 @@ class TrasportiController extends Controller
         $utente = session('utente');
         $oggi = date('Y-m-d');
 
-        // Tutti gli autisti dell'azienda (quelli con dispositivo tracking attivo)
+        // Tutti gli autisti dell'azienda (filtrati per ruolo via utenti_ruoli)
         $autisti = DB::table('utenti as u')
             ->leftJoin('dispositivi_tracking as dt', function ($join) {
                 $join->on('u.id', '=', 'dt.id_utente')
                     ->where('dt.is_active', 1);
             })
+            ->join('utenti_ruoli as ur', 'u.id', '=', 'ur.id_utente')
+            ->join('ruoli as r', 'ur.id_ruolo', '=', 'r.id')
             ->where('u.id_azienda', $utente->id_azienda)
             ->where('u.abilitato', 1)
+            ->where('r.titolo', 'Autista')
             ->select('u.id', 'u.nome', 'u.cognome', 'u.telefono', 'u.email', 'u.immagine', 'dt.id as id_dispositivo')
+            ->distinct()
             ->orderBy('u.nome')
             ->get();
 
@@ -1814,15 +1982,19 @@ class TrasportiController extends Controller
             ->get()
             ->keyBy('id_utente');
 
-        // Autisti con dispositivo attivo
+        // Autisti con dispositivo attivo (filtrati per ruolo via utenti_ruoli)
         $autisti = DB::table('utenti as u')
             ->join('dispositivi_tracking as dt', function ($join) {
                 $join->on('u.id', '=', 'dt.id_utente')
                     ->where('dt.is_active', 1);
             })
+            ->join('utenti_ruoli as ur', 'u.id', '=', 'ur.id_utente')
+            ->join('ruoli as r', 'ur.id_ruolo', '=', 'r.id')
             ->where('u.id_azienda', $utente->id_azienda)
             ->where('u.abilitato', 1)
+            ->where('r.titolo', 'Autista')
             ->select('u.id', 'u.nome', 'u.cognome')
+            ->distinct()
             ->get();
 
         $risultato = [];
@@ -1927,6 +2099,93 @@ class TrasportiController extends Controller
         ]);
     }
 
+    // ============================================================
+    // GESTIONE PEDANE
+    // ============================================================
 
+    public function pedane(Request $request)
+    {
+        $this->is_loggato();
+        $utente = session('utente');
 
+        // Salva rettifica manuale
+        if ($request->isMethod('post') && $request->has('salva_rettifica')) {
+            $quantita = intval($request->input('quantita', 0));
+            if ($quantita === 0) {
+                return redirect('/azienda/pedane')->with('error', 'La quantità non può essere zero');
+            }
+            DB::table('pedane_movimenti')->insert([
+                'id_azienda' => $utente->id_azienda,
+                'id_cliente' => $request->input('id_cliente'),
+                'id_ordine'  => null,
+                'tipo'       => 'rettifica',
+                'quantita'   => $quantita,
+                'data'       => $request->input('data', date('Y-m-d')),
+                'note'       => $request->input('note') ?: 'Rettifica manuale',
+                'created_by' => $utente->id,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+            return redirect('/azienda/pedane')->with('success', 'Rettifica salvata');
+        }
+
+        // Elimina movimento
+        if ($request->isMethod('post') && $request->has('elimina_movimento')) {
+            DB::table('pedane_movimenti')
+                ->where('id', $request->input('id_movimento'))
+                ->where('id_azienda', $utente->id_azienda)
+                ->where('tipo', 'rettifica') // Solo rettifiche manuali eliminabili
+                ->delete();
+            return redirect('/azienda/pedane')->with('success', 'Movimento eliminato');
+        }
+
+        // Saldo per cliente
+        $saldoPerCliente = DB::table('pedane_movimenti as pm')
+            ->join('clienti as c', 'pm.id_cliente', '=', 'c.id')
+            ->where('pm.id_azienda', $utente->id_azienda)
+            ->select(
+                'c.id',
+                'c.ragione_sociale',
+                DB::raw("SUM(CASE WHEN pm.tipo = 'consegnata' THEN pm.quantita ELSE 0 END) as tot_consegnate"),
+                DB::raw("SUM(CASE WHEN pm.tipo = 'ritirata'   THEN pm.quantita ELSE 0 END) as tot_ritirate"),
+                DB::raw("SUM(CASE WHEN pm.tipo = 'rettifica'  THEN pm.quantita ELSE 0 END) as tot_rettifiche"),
+                DB::raw("SUM(CASE WHEN pm.tipo = 'consegnata' THEN pm.quantita
+                               WHEN pm.tipo = 'ritirata'   THEN -pm.quantita
+                               ELSE pm.quantita END) as saldo")
+            )
+            ->groupBy('c.id', 'c.ragione_sociale')
+            ->orderByDesc('saldo')
+            ->get();
+
+        // Storico movimenti
+        $movimenti = DB::table('pedane_movimenti as pm')
+            ->join('clienti as c', 'pm.id_cliente', '=', 'c.id')
+            ->leftJoin('ordini_trasporto as ot', 'pm.id_ordine', '=', 'ot.id')
+            ->leftJoin('utenti as u', 'pm.id_autista', '=', 'u.id')
+            ->where('pm.id_azienda', $utente->id_azienda)
+            ->select(
+                'pm.*',
+                'c.ragione_sociale as cliente_nome',
+                'ot.numero_ordine',
+                DB::raw("TRIM(CONCAT(COALESCE(u.nome,''), ' ', COALESCE(u.cognome,''))) as autista_nome")
+            )
+            ->orderBy('pm.data', 'desc')
+            ->orderBy('pm.created_at', 'desc')
+            ->get();
+
+        $totConsegnate  = $movimenti->where('tipo', 'consegnata')->sum('quantita');
+        $totRitirate    = $movimenti->where('tipo', 'ritirata')->sum('quantita');
+        $totRettifiche  = $movimenti->where('tipo', 'rettifica')->sum('quantita');
+        $saldoTotale    = $totConsegnate - $totRitirate + $totRettifiche;
+
+        $clienti = DB::table('clienti')
+            ->where('id_azienda', $utente->id_azienda)
+            ->orderBy('ragione_sociale')
+            ->get();
+
+        return view('azienda.pedane', compact(
+            'utente', 'saldoPerCliente', 'movimenti',
+            'totConsegnate', 'totRitirate', 'totRettifiche', 'saldoTotale', 'clienti'
+        ));
+    }
 }

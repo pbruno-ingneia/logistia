@@ -48,7 +48,9 @@
                         <td>{{ $azienda->indirizzo }}</td>
                         <td>
                             <!-- Pulsante per aprire la modal di modifica -->
-                            <button class="btn btn-sm btn-primary" onclick="openEditModalAzienda({{ $azienda->id }}, '{{ $azienda->titolo }}', '{{ $azienda->descrizione }}', '{{ $azienda->ragione_sociale }}', '{{ $azienda->partita_iva }}', '{{ $azienda->comune }}', '{{ $azienda->indirizzo }}')">Modifica</button>
+                            <button class="btn btn-sm btn-primary"
+                                    onclick="openEditModalAzienda(this)"
+                                    data-azienda="{{ json_encode($azienda) }}">Modifica</button>
                             <a href="#" class="btn btn-sm btn-danger" onclick="setAziendaIdToDelete({{ $azienda->id }})">Elimina</a>
                             <form method="post">
                                 <input type="hidden" name="id_utente" value="{{$azienda->id_utente}}">
@@ -98,14 +100,20 @@
                                 </div>
 
 
-                                <div class="col-md-10">
+                                <div class="col-md-9">
                                     <label class="form-label">Partita IVA <b style="color:red">*</b></label>
-                                    <input type="text" id="piva" name="p_iva" class="form-control" placeholder="Partita IVA" required/>
+                                    <input type="text" id="piva" name="p_iva" class="form-control"
+                                           placeholder="Es. 12345678901"
+                                           required
+                                           onblur="carica_dati()"
+                                           oninput="resetPivaStatus()"/>
+                                    <div id="piva_status" class="mt-1" style="display:none;"></div>
                                 </div>
 
-                                <div class="col-md-2">
-                                    <label class="form-label">&nbsp;</label>
-                                    <a id="carica_dati" class="form-control btn btn-success" onclick="carica_dati();">CARICA DATI</a>
+                                <div class="col-md-3 d-flex align-items-end">
+                                    <button type="button" id="btn_carica_dati" class="btn btn-success w-100" onclick="carica_dati()">
+                                        <i class="ri-search-line me-1"></i> Cerca P.IVA
+                                    </button>
                                 </div>
 
                                 <div class="col-md-6">
@@ -292,6 +300,7 @@
                         <div class="modal-content">
                             <form method="POST">
                                 <input type="hidden" name="id_azienda" id="edit_id_azienda">
+                                <input type="hidden" name="id_utente" id="edit_id_utente">
                                 <div class="modal-header bg-soft-info p-3">
                                     <h5 class="modal-title" id="editAziendaLabel">Modifica Azienda</h5>
                                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
@@ -389,46 +398,53 @@
 
         <!-- Modals Javascript -->
         <script>
+            function resetPivaStatus() {
+                const el = document.getElementById('piva_status');
+                if (el) el.style.display = 'none';
+            }
+
+            function setPivaStatus(tipo, testo) {
+                const el = document.getElementById('piva_status');
+                if (!el) return;
+                const colori = { loading:'text-primary', ok:'text-success', error:'text-danger', warn:'text-warning' };
+                const icone  = { loading:'ri-loader-4-line', ok:'ri-check-circle-line', error:'ri-close-circle-line', warn:'ri-error-warning-line' };
+                el.style.display = 'block';
+                el.innerHTML = '<small class="' + colori[tipo] + '"><i class="' + icone[tipo] + ' me-1"></i>' + testo + '</small>';
+            }
+
             function carica_dati() {
-                // Recupera il valore della partita IVA dal campo input
-                let piva = $('#piva').val();
+                let piva = $('#piva').val().trim().replace(/\s/g, '');
+                if (!piva || piva.length < 11) return;
 
-                const settings = {
-                    "async": true,
-                    "crossDomain": true,
-                    "url": "https://company.openapi.com/IT-advanced/" + piva,
-                    "method": "GET",
-                    "headers": {
-                        "Authorization": "Bearer 66cdb99c9c5ff0e89b0bec98"
-                    }
-                };
+                const btn = document.getElementById('btn_carica_dati');
+                if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Carico...'; }
+                setPivaStatus('loading', 'Ricerca in corso...');
 
-                // Effettua la richiesta API
-                $.ajax(settings).done(function(response) {
-                    if (response.data && response.data[0]) {
-                        const azienda = response.data[0];
-                        console.log(response.data);
-                        // Mappa i dati restituiti dall'API nei campi del form
-                        $('#ragione_sociale').val(azienda.companyName);
-                        $('#indirizzo').val(azienda.address.registeredOffice.streetName);
-                        $('#comune').val(azienda.address.registeredOffice.town);
-                        $('#provincia').val(azienda.address.registeredOffice.province);
-                        $('#cap').val(azienda.address.registeredOffice.zipCode);
-                        $('#regione').val(azienda.address.registeredOffice.region.description);
-                        $('#ateco_codice').val(azienda.atecoClassification.ateco.code);
-                        $('#ateco_descrizione').val(azienda.atecoClassification.ateco.description);
-                        $('#sdi').val(azienda.sdiCode);
-                        $('#pec').val(azienda.pec);
-
-                        // Gestione numero dipendenti e fatturato se disponibili
-                        if (azienda.balanceSheets && azienda.balanceSheets.all) {
-                            $('#dipendenti').val(azienda.balanceSheets.all[0].employees);
-                        }
+                $.ajax({
+                    url: '/admin/cerca-piva',
+                    method: 'GET',
+                    data: { piva: piva }
+                }).done(function(response) {
+                    if (response.success) {
+                        $('#ragione_sociale').val(response.ragione_sociale || '');
+                        $('#indirizzo').val(response.indirizzo || '');
+                        $('#comune').val(response.comune || '');
+                        $('#provincia').val(response.provincia || '');
+                        $('#cap').val(response.cap || '');
+                        $('#regione').val(response.regione || '');
+                        $('#ateco_codice').val(response.codice_ateco || '');
+                        $('#ateco_descrizione').val(response.desc_ateco || '');
+                        $('#sdi').val(response.codice_sdi || '');
+                        $('#pec').val(response.pec || '');
+                        $('#dipendenti').val(response.dipendenti || '');
+                        setPivaStatus('ok', 'Dati caricati: <strong>' + (response.ragione_sociale || '') + '</strong>');
                     } else {
-                        console.error("Dati azienda non disponibili");
+                        setPivaStatus('warn', response.message || 'P.IVA non trovata nel registro imprese');
                     }
-                }).fail(function(error) {
-                    console.error("Errore nella chiamata API: ", error);
+                }).fail(function() {
+                    setPivaStatus('error', 'Errore di connessione all\'API');
+                }).always(function() {
+                    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ri-search-line me-1"></i> Cerca P.IVA'; }
                 });
             }
 
@@ -441,21 +457,22 @@
                 document.getElementById('id_azienda').value = id;
             }
 
-            function openEditModalAzienda(id, titolo, descrizione, ragione_sociale, partita_iva, comune, indirizzo, provincia, cap, ateco_codice, ateco_descrizione, sdi, pec, dipendenti) {
+            function openEditModalAzienda(btn) {
+                const az = JSON.parse(btn.getAttribute('data-azienda'));
+                $('#edit_id_azienda').val(az.id || '');
+                $('#edit_id_utente').val(az.id_utente || '');
+                $('#edit_partita_iva').val(az.partita_iva || '');
+                $('#edit_ragione_sociale').val(az.ragione_sociale || '');
+                $('#edit_comune').val(az.comune || '');
+                $('#edit_indirizzo').val(az.indirizzo || '');
+                $('#edit_provincia').val(az.provincia || '');
+                $('#edit_cap').val(az.cap || '');
+                $('#edit_ateco_codice').val(az.codice_ateco || '');
+                $('#edit_ateco_descrizione').val(az.descrizione_codice_ateco || '');
+                $('#edit_sdi').val(az.codice_sdi || '');
+                $('#edit_pec').val(az.pec || '');
+                $('#edit_dipendenti').val(az.dipendenti || '');
                 $('#editAziendaModal').modal('show');
-                $('#edit_id_azienda').val(id);
-                $('#edit_partita_iva').val(partita_iva);
-                $('#edit_ragione_sociale').val(ragione_sociale);
-                $('#edit_descrizione').val(descrizione);
-                $('#edit_comune').val(comune);
-                $('#edit_indirizzo').val(indirizzo);
-                $('#edit_provincia').val(provincia);
-                $('#edit_cap').val(cap);
-                $('#edit_ateco_codice').val(ateco_codice);
-                $('#edit_ateco_descrizione').val(ateco_descrizione);
-                $('#edit_sdi').val(sdi);
-                $('#edit_pec').val(pec);
-                $('#edit_dipendenti').val(dipendenti);
             }
 
         </script>

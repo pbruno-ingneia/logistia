@@ -12,25 +12,21 @@
             max-height: 350px;
             overflow-y: auto;
         }
-
         .ddt-header {
             text-align: center;
             padding: 10px;
             border-bottom: 2px solid #333;
         }
-
         .ddt-header h5 {
             margin: 0;
             font-size: 14px;
             font-weight: bold;
         }
-
         .ddt-box {
             border: 1px solid #333;
             margin: 8px;
             padding: 8px;
         }
-
         .ddt-box-header {
             background: #e9e9e9;
             margin: -8px -8px 8px -8px;
@@ -40,98 +36,42 @@
             text-transform: uppercase;
             border-bottom: 1px solid #333;
         }
-
-        .ddt-box .nome {
-            font-weight: bold;
-            font-size: 12px;
-        }
-
-        .ddt-numero {
-            text-align: center;
-        }
-
-        .ddt-numero .numero {
-            font-size: 22px;
-            font-weight: bold;
-        }
-
-        .firma-card {
-            border-radius: 12px;
-            overflow: hidden;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-        }
-
-        .firma-card .card-header {
-            padding: 12px 15px;
-        }
-
-        .signature-area {
-            background: #f8f9fa;
-            border: 2px dashed #ccc;
-            border-radius: 8px;
-            margin: 10px;
-            position: relative;
-        }
-
-        .signature-area.signed {
-            border-style: solid;
-            border-color: #28a745;
-            background: #f0fff4;
-        }
-
-        .signature-canvas {
-            width: 100%;
-            height: 120px;
-            display: block;
-            touch-action: none;
-            border-radius: 6px;
-        }
-
-        .signature-actions {
-            display: flex;
-            gap: 10px;
-            padding: 10px;
-            justify-content: center;
-        }
-
-        .firma-img-container {
-            padding: 15px;
-            text-align: center;
-        }
-
-        .firma-img-container img {
-            max-height: 80px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            padding: 5px;
-            background: white;
-        }
-
+        .ddt-box .nome { font-weight: bold; font-size: 12px; }
+        .ddt-numero { text-align: center; }
+        .ddt-numero .numero { font-size: 22px; font-weight: bold; }
         .btn-completa {
             padding: 15px 30px;
             font-size: 1.1rem;
             font-weight: 600;
             border-radius: 10px;
         }
-
-        .status-badge {
-            display: inline-flex;
+        .foto-preview-item {
+            position: relative;
+            display: inline-block;
+        }
+        .foto-preview-item img {
+            width: 80px;
+            height: 80px;
+            object-fit: cover;
+            border-radius: 8px;
+            border: 2px solid #dee2e6;
+        }
+        .foto-preview-item .remove-foto {
+            position: absolute;
+            top: -6px;
+            right: -6px;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #dc3545;
+            color: white;
+            border: none;
+            font-size: 11px;
+            line-height: 1;
+            cursor: pointer;
+            display: flex;
             align-items: center;
-            gap: 5px;
-            padding: 4px 10px;
-            border-radius: 20px;
-            font-size: 0.75rem;
-            font-weight: 600;
-        }
-
-        .status-badge.success {
-            background: rgba(40, 167, 69, 0.15);
-            color: #28a745;
-        }
-
-        .status-badge.pending {
-            background: rgba(108, 117, 125, 0.15);
-            color: #6c757d;
+            justify-content: center;
         }
     </style>
 @endsection
@@ -149,6 +89,54 @@
                 <small class="text-muted">#{{ $ordine->numero_ordine }}</small>
             </div>
         </div>
+
+        @if($miaTappa)
+        <!-- Info Tappa (staffetta) -->
+        <div class="card mb-3 border-primary">
+            <div class="card-header bg-primary bg-opacity-10 d-flex align-items-center gap-2">
+                <i class="ri-route-line text-primary fs-5"></i>
+                <div>
+                    <strong>
+                        Tappa {{ $miaTappa->numero_tappa }}
+                        @if($totaleTappe > 1) / {{ $totaleTappe }} @endif
+                    </strong>
+                    @if($prossimaTappa)
+                        <small class="d-block text-muted">Passa il carico al prossimo autista</small>
+                    @else
+                        <small class="d-block text-success fw-semibold">Tappa finale — consegna al destinatario</small>
+                    @endif
+                </div>
+            </div>
+            <div class="card-body py-2">
+                <div class="d-flex gap-3 align-items-start">
+                    <div class="flex-fill">
+                        <small class="text-muted text-uppercase" style="font-size:9px;font-weight:700;">Ritiro</small>
+                        <div class="small fw-semibold">{{ $ordine->indirizzo_ritiro }}</div>
+                    </div>
+                    <i class="ri-arrow-right-line text-muted mt-2"></i>
+                    <div class="flex-fill">
+                        <small class="text-muted text-uppercase" style="font-size:9px;font-weight:700;">Consegna</small>
+                        <div class="small fw-semibold">{{ $ordine->indirizzo_consegna }}</div>
+                    </div>
+                </div>
+                @if($prossimaTappa && ($prossimaTappa->autista_nome || $prossimaTappa->autista_cognome))
+                <div class="mt-2 p-2 bg-light rounded d-flex align-items-center gap-2">
+                    <i class="ri-user-received-line text-primary fs-5"></i>
+                    <div>
+                        <small class="text-muted" style="font-size:10px;">Consegni a:</small>
+                        <div class="fw-bold">{{ $prossimaTappa->autista_nome }} {{ $prossimaTappa->autista_cognome }}</div>
+                        @if($prossimaTappa->indirizzo_ritiro)
+                            <small class="text-muted">📍 {{ $prossimaTappa->indirizzo_ritiro }}</small>
+                        @endif
+                    </div>
+                </div>
+                @endif
+                @if($miaTappa->note)
+                    <div class="mt-2 small text-muted"><i class="ri-sticky-note-line me-1"></i>{{ $miaTappa->note }}</div>
+                @endif
+            </div>
+        </div>
+        @endif
 
         <!-- Anteprima DDT Compatta -->
         <div class="card mb-3">
@@ -221,103 +209,81 @@
             </div>
         </div>
 
-        <!-- Firma Vettore -->
-        <div class="card firma-card mb-3" id="card-firma-vettore">
-            <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
-                <span><i class="ri-steering-2-line me-2"></i>Firma Vettore (Tu)</span>
-                @if($ddt->firma_vettore)
-                    <span class="status-badge success"><i class="ri-check-line"></i> Firmato</span>
-                @else
-                    <span class="status-badge pending"><i class="ri-time-line"></i> Da firmare</span>
-                @endif
+        @if($ordine->pedane_da_ritirare > 0)
+        <!-- Sezione Pedane -->
+        <div class="card mb-3 border-warning">
+            <div class="card-header bg-warning bg-opacity-10 d-flex align-items-center gap-2">
+                <i class="ri-stack-line text-warning fs-5"></i>
+                <div>
+                    <strong>Ritiro Pedane</strong>
+                    <small class="d-block text-muted">Previste {{ $ordine->pedane_da_ritirare }} pedane in reso</small>
+                </div>
             </div>
-            <div class="card-body p-0">
-                @if($ddt->firma_vettore)
-                    <div class="firma-img-container">
-                        <img src="{{ $ddt->firma_vettore }}" alt="Firma Vettore">
-                        <br>
-                        <small class="text-muted">{{ $ddt->data_firma_vettore ? date('d/m/Y H:i', strtotime($ddt->data_firma_vettore)) : '' }}</small>
-                        <br>
-                        <button class="btn btn-outline-danger btn-sm mt-2" onclick="rimuoviFirma('vettore')">
-                            <i class="ri-delete-bin-line"></i> Rimuovi
-                        </button>
+            <div class="card-body">
+                <label class="form-label fw-semibold">Quante pedane hai ritirato?</label>
+                <div class="d-flex align-items-center gap-3">
+                    <button type="button" class="btn btn-outline-secondary btn-sm" onclick="cambiaQuantitaPedane(-1)">
+                        <i class="ri-subtract-line"></i>
+                    </button>
+                    <input type="number" id="input_pedane_ritirate" class="form-control text-center fw-bold fs-5"
+                           value="{{ $ordine->pedane_da_ritirare }}" min="0"
+                           style="width: 90px;" oninput="aggiornaBadgePedane()">
+                    <button type="button" class="btn btn-outline-secondary btn-sm" onclick="cambiaQuantitaPedane(1)">
+                        <i class="ri-add-line"></i>
+                    </button>
+                    <span id="badge_pedane" class="badge bg-success ms-2">
+                        <i class="ri-check-line"></i> OK
+                    </span>
+                </div>
+                <div class="mt-2">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="chk_nessuna_pedana"
+                               onchange="nessunaPedana(this)">
+                        <label class="form-check-label text-danger" for="chk_nessuna_pedana">
+                            Nessuna pedana ritirata (0)
+                        </label>
                     </div>
-                @else
-                    <div class="signature-area" id="area-vettore">
-                        <canvas id="canvas-vettore" class="signature-canvas"></canvas>
-                    </div>
-                    <div class="signature-actions">
-                        <button class="btn btn-outline-secondary btn-sm" onclick="pulisciFirma('vettore')">
-                            <i class="ri-eraser-line"></i> Pulisci
-                        </button>
-                        <button class="btn btn-primary btn-sm" onclick="salvaFirma('vettore', this)">
-                            <i class="ri-check-line"></i> Conferma Firma
-                        </button>
-                    </div>
-                @endif
+                </div>
             </div>
         </div>
+        @endif
 
-        <!-- Firma Destinatario -->
-        <div class="card firma-card mb-3" id="card-firma-destinatario">
-            <div class="card-header bg-success text-white d-flex justify-content-between align-items-center">
-                <span><i class="ri-user-line me-2"></i>Firma Destinatario</span>
-                @if($ddt->firma_destinatario)
-                    <span class="status-badge success"><i class="ri-check-line"></i> Firmato</span>
-                @else
-                    <span class="status-badge pending"><i class="ri-time-line"></i> Da firmare</span>
-                @endif
+        <!-- Sezione Foto / Documenti -->
+        <div class="card mb-3">
+            <div class="card-header d-flex align-items-center gap-2">
+                <i class="ri-camera-line fs-5"></i>
+                <strong>Foto / Documenti</strong>
+                <small class="text-muted ms-1">(opzionale)</small>
             </div>
-            <div class="card-body p-0">
-                @if($ddt->firma_destinatario)
-                    <div class="firma-img-container">
-                        <img src="{{ $ddt->firma_destinatario }}" alt="Firma Destinatario">
-                        <br>
-                        <small class="text-muted">{{ $ddt->data_firma_destinatario ? date('d/m/Y H:i', strtotime($ddt->data_firma_destinatario)) : '' }}</small>
-                        <br>
-                        <button class="btn btn-outline-danger btn-sm mt-2" onclick="rimuoviFirma('destinatario')">
-                            <i class="ri-delete-bin-line"></i> Rimuovi
-                        </button>
-                    </div>
-                @else
-                    <div class="signature-area" id="area-destinatario">
-                        <canvas id="canvas-destinatario" class="signature-canvas"></canvas>
-                    </div>
-                    <div class="signature-actions">
-                        <button class="btn btn-outline-secondary btn-sm" onclick="pulisciFirma('destinatario')">
-                            <i class="ri-eraser-line"></i> Pulisci
-                        </button>
-                        <button class="btn btn-success btn-sm" onclick="salvaFirma('destinatario', this)">
-                            <i class="ri-check-line"></i> Conferma Firma
-                        </button>
-                    </div>
-                @endif
+            <div class="card-body">
+                <div id="foto-preview" class="d-flex flex-wrap gap-2 mb-3" style="min-height: 20px;"></div>
+
+                <div class="d-flex gap-2">
+                    <label class="btn btn-outline-primary btn-sm flex-fill text-center mb-0">
+                        <i class="ri-camera-line me-1"></i> Scatta Foto
+                        <input type="file" id="input_foto_camera" accept="image/*" capture="camera" multiple class="d-none" onchange="aggiungiAnteprima(this)">
+                    </label>
+                    <label class="btn btn-outline-secondary btn-sm flex-fill text-center mb-0">
+                        <i class="ri-folder-image-line me-1"></i> Galleria
+                        <input type="file" id="input_foto_galleria" accept="image/*,application/pdf" multiple class="d-none" onchange="aggiungiAnteprima(this)">
+                    </label>
+                </div>
+                <small class="text-muted d-block mt-2">Le foto verranno caricate al momento del completamento</small>
             </div>
         </div>
 
         <!-- Pulsante Completa -->
         <div class="mb-5 pb-3">
-            @if($ddt->firma_vettore && $ddt->firma_destinatario)
-                <button class="btn btn-success btn-completa w-100" onclick="completaOrdine(this)">
-                    <i class="ri-checkbox-circle-line me-2"></i>
-                    COMPLETA ORDINE
-                </button>
+            @if($miaTappa && $prossimaTappa)
+            <button class="btn btn-primary btn-completa w-100" onclick="completaOrdine(this)">
+                <i class="ri-arrow-right-circle-line me-2"></i>
+                PASSA CARICO A {{ strtoupper($prossimaTappa->autista_nome ?? 'PROSSIMO AUTISTA') }}
+            </button>
             @else
-                <button class="btn btn-secondary btn-completa w-100" disabled>
-                    <i class="ri-lock-line me-2"></i>
-                    Raccogli le firme per completare
-                </button>
-                <div class="text-center mt-2">
-                    <small class="text-muted">
-                        @if(!$ddt->firma_vettore && !$ddt->firma_destinatario)
-                            <i class="ri-error-warning-line"></i> Mancano entrambe le firme
-                        @elseif(!$ddt->firma_vettore)
-                            <i class="ri-error-warning-line"></i> Manca la tua firma (vettore)
-                        @else
-                            <i class="ri-error-warning-line"></i> Manca la firma del destinatario
-                        @endif
-                    </small>
-                </div>
+            <button class="btn btn-success btn-completa w-100" onclick="completaOrdine(this)">
+                <i class="ri-checkbox-circle-line me-2"></i>
+                COMPLETA ORDINE
+            </button>
             @endif
         </div>
 
@@ -325,124 +291,121 @@
 @endsection
 
 @section('scripts')
-    <script src="https://cdn.jsdelivr.net/npm/signature_pad@4.1.7/dist/signature_pad.umd.min.js"></script>
     <script>
-        const idDdt = {{ $ddt->id }};
+        const idDdt    = {{ $ddt->id }};
         const idOrdine = {{ $ordine->id }};
-        let signaturePads = {};
+        const pedaneDaRitirare  = {{ intval($ordine->pedane_da_ritirare ?? 0) }};
+        const hasProssimaTappa  = {{ $prossimaTappa ? 'true' : 'false' }};
+        const btnTestoDefault   = hasProssimaTappa
+            ? '<i class="ri-arrow-right-circle-line me-2"></i> PASSA CARICO A {{ strtoupper($prossimaTappa->autista_nome ?? "PROSSIMO AUTISTA") }}'
+            : '<i class="ri-checkbox-circle-line me-2"></i> COMPLETA ORDINE';
 
-        document.addEventListener('DOMContentLoaded', function() {
-            // Inizializza canvas se esistono
-            initCanvas('vettore');
-            initCanvas('destinatario');
-        });
+        // ── Pedane ──────────────────────────────────────────
+        function cambiaQuantitaPedane(delta) {
+            const input = document.getElementById('input_pedane_ritirate');
+            if (!input) return;
+            input.value = Math.max(0, parseInt(input.value || 0) + delta);
+            aggiornaBadgePedane();
+        }
 
-        function initCanvas(tipo) {
-            const canvas = document.getElementById('canvas-' + tipo);
-            if (!canvas) return;
+        function nessunaPedana(chk) {
+            const input = document.getElementById('input_pedane_ritirate');
+            if (!input) return;
+            if (chk.checked) {
+                input.value = 0;
+                input.disabled = true;
+            } else {
+                input.value = pedaneDaRitirare;
+                input.disabled = false;
+            }
+            aggiornaBadgePedane();
+        }
 
-            const container = canvas.parentElement;
-            const ratio = Math.max(window.devicePixelRatio || 1, 1);
+        function aggiornaBadgePedane() {
+            const input = document.getElementById('input_pedane_ritirate');
+            const badge = document.getElementById('badge_pedane');
+            if (!input || !badge) return;
+            const val = parseInt(input.value || 0);
+            if (val === 0) {
+                badge.className = 'badge bg-danger ms-2';
+                badge.innerHTML = '<i class="ri-close-line"></i> Nessuna';
+            } else if (val < pedaneDaRitirare) {
+                badge.className = 'badge bg-warning text-dark ms-2';
+                badge.innerHTML = '<i class="ri-error-warning-line"></i> Parziale';
+            } else {
+                badge.className = 'badge bg-success ms-2';
+                badge.innerHTML = '<i class="ri-check-line"></i> OK';
+            }
+        }
 
-            canvas.width = container.offsetWidth * ratio;
-            canvas.height = 120 * ratio;
-            canvas.style.width = container.offsetWidth + 'px';
-            canvas.style.height = '120px';
+        // ── Foto ─────────────────────────────────────────────
+        const fotoSelezionate = [];
 
-            const ctx = canvas.getContext('2d');
-            ctx.scale(ratio, ratio);
+        function aggiungiAnteprima(input) {
+            const preview = document.getElementById('foto-preview');
+            Array.from(input.files).forEach(file => {
+                fotoSelezionate.push(file);
+                const idx = fotoSelezionate.length - 1;
 
-            signaturePads[tipo] = new SignaturePad(canvas, {
-                backgroundColor: 'rgb(248, 249, 250)',
-                penColor: 'rgb(0, 0, 0)',
-                minWidth: 1,
-                maxWidth: 2.5
+                const wrap = document.createElement('div');
+                wrap.className = 'foto-preview-item';
+                wrap.dataset.idx = idx;
+
+                if (file.type.startsWith('image/')) {
+                    const reader = new FileReader();
+                    reader.onload = e => {
+                        wrap.innerHTML = `
+                            <img src="${e.target.result}" alt="foto">
+                            <button class="remove-foto" onclick="rimuoviFoto(${idx})">×</button>`;
+                    };
+                    reader.readAsDataURL(file);
+                } else {
+                    wrap.innerHTML = `
+                        <div class="d-flex align-items-center justify-content-center bg-light border rounded"
+                             style="width:80px;height:80px;font-size:11px;text-overflow:ellipsis;overflow:hidden;padding:4px;text-align:center;">
+                            <i class="ri-file-pdf-line fs-4 text-danger d-block"></i>
+                            <span>${file.name.substring(0, 15)}</span>
+                        </div>
+                        <button class="remove-foto" onclick="rimuoviFoto(${idx})">×</button>`;
+                }
+
+                preview.appendChild(wrap);
             });
+            input.value = '';
         }
 
-        function pulisciFirma(tipo) {
-            if (signaturePads[tipo]) {
-                signaturePads[tipo].clear();
-            }
+        function rimuoviFoto(idx) {
+            fotoSelezionate[idx] = null;
+            const el = document.querySelector(`[data-idx="${idx}"]`);
+            if (el) el.remove();
         }
 
-        function salvaFirma(tipo, btn) {
-            const pad = signaturePads[tipo];
-
-            if (!pad || pad.isEmpty()) {
-                alert('Inserisci la firma prima di confermare');
-                return;
-            }
-
-            const firmaBase64 = pad.toDataURL('image/png');
-            const originalText = btn.innerHTML;
-
-            btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
-            btn.disabled = true;
-
-            fetch('/autista/ddt/salva-firma', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRF-TOKEN': window.csrfToken
-                },
-                body: JSON.stringify({
-                    id_ddt: idDdt,
-                    tipo_firma: tipo,
-                    firma: firmaBase64
-                })
-            })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        location.reload();
-                    } else {
-                        alert('Errore: ' + (data.message || 'Riprova'));
-                        btn.innerHTML = originalText;
-                        btn.disabled = false;
-                    }
-                })
-                .catch(error => {
-                    console.error('Errore:', error);
-                    alert('Errore di connessione');
-                    btn.innerHTML = originalText;
-                    btn.disabled = false;
-                });
-        }
-
-        function rimuoviFirma(tipo) {
-            if (!confirm('Rimuovere questa firma?')) return;
-
-            fetch('/autista/ddt/rimuovi-firma', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRF-TOKEN': window.csrfToken
-                },
-                body: JSON.stringify({
-                    id_ddt: idDdt,
-                    tipo_firma: tipo
-                })
-            })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        location.reload();
-                    } else {
-                        alert('Errore: ' + (data.message || 'Riprova'));
-                    }
-                })
-                .catch(error => {
-                    console.error('Errore:', error);
-                    alert('Errore di connessione');
-                });
-        }
-
-        function completaOrdine(btn) {
+        // ── Completa ordine ──────────────────────────────────
+        async function completaOrdine(btn) {
             if (!confirm('Confermi di completare questo ordine?')) return;
 
             btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span> Completamento...';
             btn.disabled = true;
+
+            // 1. Carica eventuali foto
+            const fotoValide = fotoSelezionate.filter(f => f !== null);
+            if (fotoValide.length > 0) {
+                const formData = new FormData();
+                fotoValide.forEach(f => formData.append('foto[]', f));
+                formData.append('_token', window.csrfToken);
+                try {
+                    await fetch('/autista/consegna/' + idOrdine + '/upload-foto', {
+                        method: 'POST',
+                        body: formData
+                    });
+                } catch(e) {
+                    console.warn('Upload foto fallito:', e);
+                }
+            }
+
+            // 2. Completa l'ordine
+            const inputPedane    = document.getElementById('input_pedane_ritirate');
+            const pedaneRitirate = inputPedane ? parseInt(inputPedane.value || 0) : null;
 
             fetch('/autista/ordine/completa', {
                 method: 'POST',
@@ -451,30 +414,25 @@
                     'X-CSRF-TOKEN': window.csrfToken
                 },
                 body: JSON.stringify({
-                    id_ordine: idOrdine
+                    id_ordine: idOrdine,
+                    pedane_ritirate: pedaneRitirate
                 })
             })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        // Redirect alla pagina riepilogo
-                        if (data.redirect) {
-                            window.location.href = data.redirect;
-                        } else {
-                            window.location.href = '/autista/ordine/' + idOrdine + '/completato';
-                        }
-                    } else {
-                        alert('Errore: ' + (data.message || 'Riprova'));
-                        btn.innerHTML = '<i class="ri-checkbox-circle-line me-2"></i> COMPLETA ORDINE';
-                        btn.disabled = false;
-                    }
-                })
-                .catch(error => {
-                    console.error('Errore:', error);
-                    alert('Errore di connessione');
-                    btn.innerHTML = '<i class="ri-checkbox-circle-line me-2"></i> COMPLETA ORDINE';
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    window.location.href = data.redirect || '/autista/ordine/' + idOrdine + '/completato';
+                } else {
+                    alert('Errore: ' + (data.message || 'Riprova'));
+                    btn.innerHTML = btnTestoDefault;
                     btn.disabled = false;
-                });
+                }
+            })
+            .catch(() => {
+                alert('Errore di connessione');
+                btn.innerHTML = '<i class="ri-checkbox-circle-line me-2"></i> COMPLETA ORDINE';
+                btn.disabled = false;
+            });
         }
     </script>
 @endsection

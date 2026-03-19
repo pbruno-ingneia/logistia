@@ -38,8 +38,18 @@
                 </a>
             </li>
             <li class="nav-item">
+                <a href="/azienda/pedane" class="nav-link">
+                    <i class="ri-stack-line"></i> Pedane
+                </a>
+            </li>
+            <li class="nav-item">
                 <a href="/azienda/clienti" class="nav-link">
                     <i class="ri-user-2-line"></i> Clienti
+                </a>
+            </li>
+            <li class="nav-item">
+                <a href="/azienda/planning-autisti" class="nav-link">
+                    <i class="ri-calendar-check-line"></i> Planning Autisti
                 </a>
             </li>
 

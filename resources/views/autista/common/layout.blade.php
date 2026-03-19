@@ -539,7 +539,7 @@
             <i class="ri-home-5-line"></i>
             <span>Home</span>
         </a>
-        <a href="/autista/piano-giornaliero" class="nav-item {{ request()->is('autista/consegne*') ? 'active' : '' }}">
+        <a href="/autista/consegne" class="nav-item {{ request()->is('autista/consegne*') ? 'active' : '' }}">
             <i class="ri-file-list-3-line"></i>
             <span>Consegne</span>
         </a>

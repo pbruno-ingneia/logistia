@@ -294,4 +294,61 @@ class AdminController extends Controller{
 
     }
 
+    /**
+     * Proxy server-side verso OpenAPI (evita CORS e nasconde il token)
+     */
+    public function cercaPiva(Request $request)
+    {
+        $piva = preg_replace('/[^A-Z0-9]/i', '', $request->input('piva', ''));
+
+        if (strlen($piva) < 11) {
+            return response()->json(['success' => false, 'message' => 'P.IVA non valida'], 400);
+        }
+
+        try {
+            $client = new \GuzzleHttp\Client(['timeout' => 10, 'verify' => false]);
+            $res = $client->get('https://company.openapi.com/IT-advanced/' . $piva, [
+                'headers' => [
+                    'Authorization' => 'Bearer 68dc0564cc8194517e0ca866',
+                    'Accept'        => 'application/json',
+                ]
+            ]);
+
+            $body = json_decode($res->getBody()->getContents(), true);
+
+            if (!empty($body['data'][0])) {
+                $az   = $body['data'][0];
+                $sede = $az['address']['registeredOffice'] ?? [];
+                $ateco = $az['atecoClassification']['ateco'] ?? [];
+
+                return response()->json([
+                    'success'          => true,
+                    'ragione_sociale'  => $az['companyName'] ?? '',
+                    'indirizzo'        => $sede['streetName'] ?? '',
+                    'comune'           => $sede['town'] ?? '',
+                    'provincia'        => $sede['province'] ?? '',
+                    'cap'              => $sede['zipCode'] ?? '',
+                    'regione'          => $sede['region']['description'] ?? '',
+                    'codice_ateco'     => $ateco['code'] ?? '',
+                    'desc_ateco'       => $ateco['description'] ?? '',
+                    'codice_sdi'       => $az['sdiCode'] ?? '',
+                    'pec'              => $az['pec'] ?? '',
+                    'dipendenti'       => $az['balanceSheets']['all'][0]['employees'] ?? '',
+                ]);
+            }
+
+            return response()->json(['success' => false, 'message' => 'P.IVA non trovata nel registro imprese']);
+
+        } catch (\GuzzleHttp\Exception\ClientException $e) {
+            // 4xx dall'API (es. 401 token scaduto, 404 P.IVA non trovata)
+            $status = $e->getResponse() ? $e->getResponse()->getStatusCode() : 400;
+            if ($status === 401 || $status === 403) {
+                return response()->json(['success' => false, 'message' => 'Token API non valido o scaduto (configura il token in AdminController)'], 200);
+            }
+            return response()->json(['success' => false, 'message' => 'P.IVA non trovata nel registro imprese'], 200);
+        } catch (\Exception $e) {
+            return response()->json(['success' => false, 'message' => 'Errore connessione API: ' . $e->getMessage()], 200);
+        }
+    }
+
 }
